@@ -74,7 +74,11 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "04.10.2026 · v15";
+var APP_VERSION = "04.10.2026 · v16";
+var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
+function quotaNoteHtml(){
+  return '<div style="background:#FBF6E8; border:1px solid #E6D3A3; border-left:3px solid #B8862F; border-radius:4px; padding:8px 10px; margin:10px 0; font-size:12px; color:#5A4A22; line-height:1.5;">⚠️ '+esc(QUOTA_NOTE)+'</div>';
+}
 // «ΟΠΕΝ»: athletes not registered with a club — Φιλικοί only.
 var OPEN_CLUB_NAME = "ΟΠΕΝ";
 var OPEN_CLUB_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic2t5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjRThGNEZCIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjQkZFMEYyIi8+PC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic2VhIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMkU3RkI4Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMUYzODY0Ii8+PC9saW5lYXJHcmFkaWVudD4KICAgIDxjbGlwUGF0aCBpZD0iYyI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNDciLz48L2NsaXBQYXRoPgogIDwvZGVmcz4KICA8ZyBjbGlwLXBhdGg9InVybCgjYykiPgogICAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9InVybCgjc2t5KSIvPgogICAgPHJlY3QgeT0iNTgiIHdpZHRoPSIxMDAiIGhlaWdodD0iNDIiIGZpbGw9InVybCgjc2VhKSIvPgogICAgPCEtLSBmbG9hdDogYW50ZW5uYSwgcmVkIGNhcCwgd2hpdGUgYm9keTsgbG93ZXIgcGFydCB1bmRlciB3YXRlciAtLT4KICAgIDxsaW5lIHgxPSI1MCIgeTE9IjEyIiB4Mj0iNTAiIHkyPSIzMCIgc3Ryb2tlPSIjMWIyMzMwIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgICA8cGF0aCBkPSJNNTAgMjYgQzU4IDMwIDYwIDQyIDU4IDU4IEw0MiA1OCBDNDAgNDIgNDIgMzAgNTAgMjYgWiIgZmlsbD0iI0UwM0EyRiIvPgogICAgPHBhdGggZD0iTTQyIDU4IEw1OCA1OCBDNTcgNjYgNTQgNzIgNTAgNzYgQzQ2IDcyIDQzIDY2IDQyIDU4IFoiIGZpbGw9IiNGNUYxRTYiIG9wYWNpdHk9IjAuNTUiLz4KICAgIDxsaW5lIHgxPSI1MCIgeTE9Ijc2IiB4Mj0iNTAiIHkyPSI5MCIgc3Ryb2tlPSIjRjVGMUU2IiBzdHJva2Utd2lkdGg9IjEuNiIgb3BhY2l0eT0iMC41Ii8+CiAgICA8cGF0aCBkPSJNNDIgNTAgTDU4IDUwIiBzdHJva2U9IiNGNUYxRTYiIHN0cm9rZS13aWR0aD0iMy41Ii8+CiAgICA8IS0tIHJpcHBsZXMgYXJvdW5kIHRoZSBmbG9hdCAtLT4KICAgIDxwYXRoIGQ9Ik0yMiA2MCBxNyAtNCAxNCAwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMi4yIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICAgIDxwYXRoIGQ9Ik02NCA2MCBxNyAtNCAxNCAwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMi4yIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICAgIDxwYXRoIGQ9Ik04IDcwIHE4IC00IDE2IDAgcTggNCAxNiAwIiBzdHJva2U9IiM5RkQwRUUiIHN0cm9rZS13aWR0aD0iMS44IiBmaWxsPSJub25lIiBvcGFjaXR5PSIwLjgiLz4KICAgIDxwYXRoIGQ9Ik02MCA3MiBxOCAtNCAxNiAwIHE4IDQgMTYgMCIgc3Ryb2tlPSIjOUZEMEVFIiBzdHJva2Utd2lkdGg9IjEuOCIgZmlsbD0ibm9uZSIgb3BhY2l0eT0iMC44Ii8+CiAgPC9nPgogIDxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjQ3IiBmaWxsPSJub25lIiBzdHJva2U9IiNENEFGMzciIHN0cm9rZS13aWR0aD0iMyIvPgo8L3N2Zz4K";
@@ -1265,7 +1269,9 @@ function buildSeriesPrint(){
   state.seriesRaces.forEach(function(r, i){
     h += '<tr><td style="width:34px; vertical-align:top;"><b>'+(i+1)+'ος</b></td><td>'+esc(r.name)+seriesRaceExtra(r, true)+'</td><td class="n" style="vertical-align:top;">'+new Date(r.savedAt).toLocaleDateString("el-GR")+'</td></tr>';
   });
-  h += '</table><table><tr><th class="c">#</th><th>Αθλητής</th><th>Σύλλογος</th>';
+  h += '</table>';
+  if (state.seriesRegion) h += '<div style="border:1px solid #D9C48F; border-left:3px solid #B8862F; padding:4px 7px; margin:0 0 8px; font-size:8pt; color:#5A4A22; line-height:1.4;"><b>Σημείωση:</b> '+esc(QUOTA_NOTE)+'</div>';
+  h += '<table><tr><th class="c">#</th><th>Αθλητής</th><th>Σύλλογος</th>';
   for (var i = 0; i < n; i++) h += '<th class="c">'+(i+1)+'ος</th>';
   h += '<th class="c">Σύνολο</th><th class="n">Βάρος</th></tr>';
   state.seriesRows.forEach(function(a){
@@ -2774,6 +2780,7 @@ function renderQuota(){
   html += '<label style="font-size:12px; color:#5A6472;">Θέσεις τελικού<br><input class="input" type="text" inputmode="numeric" style="width:80px; margin-top:4px;" value="'+Q.places+'" onblur="setQuotaPlaces(this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" /></label>';
   html += '<label style="font-size:12px; color:#5A6472;">Έγκυρη συμμετοχή: ελάχιστοι αγώνες<br><input class="input" type="text" inputmode="numeric" style="width:80px; margin-top:4px;" value="'+state.quota.minRaces+'" onblur="setQuotaMin(this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" /></label>';
   html += '</div>';
+  html += quotaNoteHtml();
   html += '<div style="background:#fff; border:1px solid #E4DFCF; border-radius:5px; overflow:hidden;">';
   html += '<div style="display:flex; gap:8px; padding:8px 10px; background:'+NAVY+'; color:#fff; font-size:11.5px; font-weight:bold;"><span style="flex:1;">Περιφέρεια</span><span style="width:74px; text-align:center;">Έγκυροι</span><span style="width:54px; text-align:center;">Θέσεις</span></div>';
   if (!Q.rows.length) html += '<div style="padding:14px; color:#8A93A0; font-size:13px;">Δεν υπάρχουν ακόμα περιφέρειες. Όρισε περιφέρεια στους αποθηκευμένους αγώνες ή πρόσθεσε μία χειροκίνητα παρακάτω.</div>';
@@ -2801,6 +2808,7 @@ function renderSeries(){
   html += '<div style="font-size:11.5px; color:#8A93A0; margin-top:4px;">'+(state.seriesRegion ? '📍 '+esc(state.seriesRegion)+' · ' : '')+n+' αγώνες · χωρίς αφαίρεση αγώνα</div>';
   html += '<div style="font-size:11.5px; color:#5A6472; margin-top:2px;">Έγκυρη συμμετοχή: τουλάχιστον <b>'+state.seriesNeed+'</b> από '+n+' αγώνες'+(state.seriesInvalidCount ? ' · '+state.seriesInvalidCount+' μη έγκυροι' : '')+(state.seriesQualifies ? ' · Προκρίνονται <b>'+state.seriesQualifies+'</b> στον τελικό' : '')+'</div>';
   html += '</div>';
+  if (state.seriesRegion) html += quotaNoteHtml();
   html += '<div style="background:#fff; border:1px solid #E4DFCF; border-radius:5px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#5A6472; line-height:1.6;">';
   state.seriesRaces.forEach(function(r, i){
     var dateStr = new Date(r.savedAt).toLocaleDateString("el-GR", { day:"2-digit", month:"2-digit", year:"numeric" });
