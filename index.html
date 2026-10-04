@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "03.10.2026 · v13";
+var APP_VERSION = "04.10.2026 · v15";
 // «ΟΠΕΝ»: athletes not registered with a club — Φιλικοί only.
 var OPEN_CLUB_NAME = "ΟΠΕΝ";
 var OPEN_CLUB_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic2t5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjRThGNEZCIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjQkZFMEYyIi8+PC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic2VhIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMkU3RkI4Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMUYzODY0Ii8+PC9saW5lYXJHcmFkaWVudD4KICAgIDxjbGlwUGF0aCBpZD0iYyI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNDciLz48L2NsaXBQYXRoPgogIDwvZGVmcz4KICA8ZyBjbGlwLXBhdGg9InVybCgjYykiPgogICAgPHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9InVybCgjc2t5KSIvPgogICAgPHJlY3QgeT0iNTgiIHdpZHRoPSIxMDAiIGhlaWdodD0iNDIiIGZpbGw9InVybCgjc2VhKSIvPgogICAgPCEtLSBmbG9hdDogYW50ZW5uYSwgcmVkIGNhcCwgd2hpdGUgYm9keTsgbG93ZXIgcGFydCB1bmRlciB3YXRlciAtLT4KICAgIDxsaW5lIHgxPSI1MCIgeTE9IjEyIiB4Mj0iNTAiIHkyPSIzMCIgc3Ryb2tlPSIjMWIyMzMwIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgICA8cGF0aCBkPSJNNTAgMjYgQzU4IDMwIDYwIDQyIDU4IDU4IEw0MiA1OCBDNDAgNDIgNDIgMzAgNTAgMjYgWiIgZmlsbD0iI0UwM0EyRiIvPgogICAgPHBhdGggZD0iTTQyIDU4IEw1OCA1OCBDNTcgNjYgNTQgNzIgNTAgNzYgQzQ2IDcyIDQzIDY2IDQyIDU4IFoiIGZpbGw9IiNGNUYxRTYiIG9wYWNpdHk9IjAuNTUiLz4KICAgIDxsaW5lIHgxPSI1MCIgeTE9Ijc2IiB4Mj0iNTAiIHkyPSI5MCIgc3Ryb2tlPSIjRjVGMUU2IiBzdHJva2Utd2lkdGg9IjEuNiIgb3BhY2l0eT0iMC41Ii8+CiAgICA8cGF0aCBkPSJNNDIgNTAgTDU4IDUwIiBzdHJva2U9IiNGNUYxRTYiIHN0cm9rZS13aWR0aD0iMy41Ii8+CiAgICA8IS0tIHJpcHBsZXMgYXJvdW5kIHRoZSBmbG9hdCAtLT4KICAgIDxwYXRoIGQ9Ik0yMiA2MCBxNyAtNCAxNCAwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMi4yIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICAgIDxwYXRoIGQ9Ik02NCA2MCBxNyAtNCAxNCAwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMi4yIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICAgIDxwYXRoIGQ9Ik04IDcwIHE4IC00IDE2IDAgcTggNCAxNiAwIiBzdHJva2U9IiM5RkQwRUUiIHN0cm9rZS13aWR0aD0iMS44IiBmaWxsPSJub25lIiBvcGFjaXR5PSIwLjgiLz4KICAgIDxwYXRoIGQ9Ik02MCA3MiBxOCAtNCAxNiAwIHE4IDQgMTYgMCIgc3Ryb2tlPSIjOUZEMEVFIiBzdHJva2Utd2lkdGg9IjEuOCIgZmlsbD0ibm9uZSIgb3BhY2l0eT0iMC44Ii8+CiAgPC9nPgogIDxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjQ3IiBmaWxsPSJub25lIiBzdHJva2U9IiNENEFGMzciIHN0cm9rZS13aWR0aD0iMyIvPgo8L3N2Zz4K";
@@ -850,21 +850,13 @@ function openSeriesRanking(){
   }
   var taken = 0;
   res.all.forEach(function(r){ r.qualifies = false; if (r.valid && taken < qualifies){ r.qualifies = true; taken++; } });
-  state.seriesRaces = races.map(function(d){ return { name: d.name, savedAt: d.savedAt, region: d.region || "" }; });
-  // Χορηγοί της σειράς: όλοι οι χορηγοί των επιλεγμένων αγώνων, μία φορά ο
-  // καθένας, με τη σειρά που πρωτοεμφανίζονται.
-  var seen = {}, sps = [];
-  races.forEach(function(d){
-    ((d.raceInfo && d.raceInfo.sponsors) || []).forEach(function(sp){
-      var nm = String(sp.name || "").trim();
-      if (!nm && !sp.logo) return;
-      var k = nm ? normalizeClubName(nm) : sp.logo;
-      if (seen[k]){ if (!seen[k].logo && sp.logo) seen[k].logo = sp.logo; return; }
-      seen[k] = { name: nm, logo: sp.logo || null };
-      sps.push(seen[k]);
-    });
+  // Χορηγοί και Αλυτάρχης κάθε αγώνα: αναφέρονται μόνο στη γραμμή του αγώνα.
+  state.seriesRaces = races.map(function(d){
+    var ri = d.raceInfo || {};
+    var sps = (ri.sponsors || []).filter(function(sp){ return sp && (String(sp.name || "").trim() || sp.logo); })
+      .map(function(sp){ return { name: String(sp.name || "").trim(), logo: sp.logo || null }; });
+    return { name: d.name, savedAt: d.savedAt, region: d.region || "", referee: String(ri.referee || "").trim(), sponsors: sps };
   });
-  state.seriesSponsors = sps;
   state.seriesRows = res.all;
   state.seriesInvalid = [];
   state.seriesInvalidCount = res.invalid.length;
@@ -1039,15 +1031,16 @@ var PRINT_CSS = '' +
 
 // Letterhead: federation seal left, the race in the middle, the
 // international bodies and catch & release (smaller) on the right.
-function printHeader(title, sub){
+function printHeader(title, sub, opts){
+  opts = opts || {};
   return '<div class="ph">' +
     '<img class="seal" src="'+PODIUM_SEAL+'" alt="Ε.Ο.Υ.Δ.Α." />' +
-    (function(){ var oc = organizerClub(); return oc && oc.logo ? '<img class="seal org" src="'+oc.logo+'" alt="'+esc(oc.name)+'" />' : ''; })() +
+    (function(){ var oc = opts.noRaceInfo ? null : organizerClub(); return oc && oc.logo ? '<img class="seal org" src="'+oc.logo+'" alt="'+esc(oc.name)+'" />' : ''; })() +
     '<div class="mid"><div class="fedgr">Ε.Ο.Υ.Δ.Α.</div>' +
     '<div class="fed">ΕΛΛΗΝΙΚΗ ΟΜΟΣΠΟΝΔΙΑ ΥΠΟΒΡΥΧΙΑΣ ΔΡΑΣΤΗΡΙΟΤΗΤΑΣ ΑΘΛΗΤΙΚΗΣ ΑΛΙΕΙΑΣ</div>' +
     '<div class="ttl">'+esc(title)+'</div><div class="sub">'+sub+'</div>' +
-    (raceInfoLine() ? '<div class="sub">'+esc(raceInfoLine())+'</div>' : '') +
-    ((state.raceInfo && state.raceInfo.referee) ? '<div class="sub"><b>Αλυτάρχης:</b> '+esc(state.raceInfo.referee)+'</div>' : '') +
+    (!opts.noRaceInfo && raceInfoLine() ? '<div class="sub">'+esc(raceInfoLine())+'</div>' : '') +
+    ((!opts.noReferee && state.raceInfo && state.raceInfo.referee) ? '<div class="sub"><b>Αλυτάρχης:</b> '+esc(state.raceInfo.referee)+'</div>' : '') +
     '</div>' +
     '<div class="rl"><img class="cr" src="'+LOGO_CATCH_RELEASE+'" alt="Catch &amp; Release" />' +
     '<div class="stk"><img src="'+LOGO_FIPSM+'" alt="FIPS-M" /><img src="'+LOGO_FIPSED+'" alt="FIPSed" /></div></div>' +
@@ -1151,9 +1144,9 @@ function pageFooterCss(kind){
   function q(t){ return '"' + String(t).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'; }
   var now = new Date();
   var issued = now.toLocaleDateString("el-GR") + " " + now.toLocaleTimeString("el-GR", { hour:"2-digit", minute:"2-digit" });
-  var ref = (state.raceInfo && state.raceInfo.referee) || "";
+  var ref = kind === "series" ? "" : ((state.raceInfo && state.raceInfo.referee) || "");
   var left = "Κληρώσεις & Διαχείριση Αγώνων Φελλού · Ε.Ο.Υ.Δ.Α. · " + APP_VERSION + " · σελ. ";
-  var spText = kind === "series" ? sponsorsLabel(state.seriesSponsors || []) : sponsorsLabel();
+  var spText = kind === "series" ? "" : sponsorsLabel();
   var right = (spText ? spText + " · " : "") + (ref ? "Αλυτάρχης: " + ref + " · " : "") + "Εκδόθηκε " + issued;
   var box = 'font-family:Arial,Helvetica,sans-serif; font-size:7pt; color:#8A93A0; vertical-align:top; padding-top:3mm;';
   return '@media print{@page{margin:11mm 10mm 15mm 10mm;' +
@@ -1252,12 +1245,25 @@ function buildChampionshipPrint(){
   return { html: h + printSignature() + printFooter(), file: "Protathlima_" + title };
 }
 
+// Χορηγός / Αλυτάρχης ενός αγώνα, κάτω από το όνομά του στη συγκεντρωτική.
+function seriesRaceExtra(r, forPrint){
+  var parts = [];
+  var sps = r.sponsors || [];
+  if (sps.length){
+    var t = '<span style="display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;">' + (sps.length > 1 ? 'Χορηγοί: ' : 'Χορηγός: ') +
+      sps.map(function(sp){ return (sp.logo ? '<img src="'+sp.logo+'" alt="" style="height:'+(forPrint?13:15)+'px; max-width:48px; object-fit:contain; vertical-align:middle;" />' : '') + (sp.name ? esc(sp.name) : ''); }).join(', ') + '</span>';
+    parts.push(t);
+  }
+  if (r.referee) parts.push('<span>Αλυτάρχης: '+esc(r.referee)+'</span>');
+  if (!parts.length) return '';
+  return '<div style="font-size:'+(forPrint?'7.5pt':'11px')+'; color:#8A93A0; margin-top:2px; display:flex; flex-wrap:wrap; align-items:center; gap:2px 10px;">' + parts.join('') + '</div>';
+}
 function buildSeriesPrint(){
   var n = state.seriesRaces.length;
-  var h = printHeader('Συγκεντρωτική Κατάταξη' + (state.seriesRegion ? ' — ' + state.seriesRegion : ''), MODES[state.mode].title + ' · ' + n + ' αγώνες · έγκυρη συμμετοχή: τουλάχιστον ' + state.seriesNeed + (state.seriesQualifies ? ' · προκρίνονται ' + state.seriesQualifies : '')) + printSponsors(state.seriesSponsors || []);
+  var h = printHeader('Συγκεντρωτική Κατάταξη' + (state.seriesRegion ? ' — ' + state.seriesRegion : ''), MODES[state.mode].title + ' · ' + n + ' αγώνες · έγκυρη συμμετοχή: τουλάχιστον ' + state.seriesNeed + (state.seriesQualifies ? ' · προκρίνονται ' + state.seriesQualifies : ''), { noReferee: true, noRaceInfo: true });
   h += '<table style="margin-bottom:8px;">';
   state.seriesRaces.forEach(function(r, i){
-    h += '<tr><td style="width:34px;"><b>'+(i+1)+'ος</b></td><td>'+esc(r.name)+'</td><td class="n">'+new Date(r.savedAt).toLocaleDateString("el-GR")+'</td></tr>';
+    h += '<tr><td style="width:34px; vertical-align:top;"><b>'+(i+1)+'ος</b></td><td>'+esc(r.name)+seriesRaceExtra(r, true)+'</td><td class="n" style="vertical-align:top;">'+new Date(r.savedAt).toLocaleDateString("el-GR")+'</td></tr>';
   });
   h += '</table><table><tr><th class="c">#</th><th>Αθλητής</th><th>Σύλλογος</th>';
   for (var i = 0; i < n; i++) h += '<th class="c">'+(i+1)+'ος</th>';
@@ -1279,7 +1285,7 @@ function buildSeriesPrint(){
     });
     h += '</table>';
   }
-  return { html: h + printSignature() + printFooter(), file: "Synkentrotiki_Katataxi" + (state.seriesRegion ? "_" + state.seriesRegion : "") };
+  return { html: h + printFooter(), file: "Synkentrotiki_Katataxi" + (state.seriesRegion ? "_" + state.seriesRegion : "") };
 }
 
 function printPdf(kind){
@@ -2393,8 +2399,7 @@ function renderPairsSetup(){
     html += '<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-top:'+(i?'1px solid #F0EBDD':'none')+';">';
     html += '<span style="font-size:11px; color:#B8862F; font-weight:bold; width:22px;">'+(i+1)+'.</span>';
     html += '<div style="flex:1; min-width:0; font-size:12.5px; line-height:1.35;">' +
-      '<div>'+esc(A.athlete.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(A.club.name)+'</span></div>' +
-      '<div>'+esc(B.athlete.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(B.club.name)+'</span></div></div>';
+      [A, B].map(function(X){ return '<div style="display:flex; align-items:center; gap:6px;">'+clubMark(X.club.logo, X.club.color, 14)+'<span>'+esc(X.athlete.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(X.club.name)+'</span></span></div>'; }).join('') + '</div>';
     html += '<button class="icon-btn" onclick="removePair('+jsStr(p.id)+')" title="Διάλυση ζευγαριού">✕</button></div>';
   });
   var free = all.filter(function(x){ return !inPair[x.a.id]; });
@@ -2666,15 +2671,22 @@ function renderFinalRanking(){
     var top3 = a.place <= 3;
     html += '<div style="display:flex; align-items:center; gap:10px; padding:10px 14px; border-top:'+(idx===0?"none":"1px solid #F0EBDD")+'; background:'+(top3?"#FBF6E8":"#fff")+';">';
     html += placeBadge(a.place, 30, true);
+    if (a.members && a.members.length){
+      html += '<div style="flex:1; min-width:0;">';
+      a.members.forEach(function(m){
+        html += '<div style="display:flex; align-items:center; gap:6px; min-width:0; margin-bottom:2px;">'+clubMark(m.logo, m.color, 20)+'<span style="font-size:14px; color:'+INK+'; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(m.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(m.clubName)+'</span></span></div>';
+      });
+    } else {
     if (a.logo) html += '<img src="'+a.logo+'" style="width:20px;height:20px;border-radius:50%;object-fit:cover;" />';
     else html += '<span style="width:11px;height:11px;border-radius:50%;background:'+a.color+';display:inline-block;"></span>';
     html += '<div style="flex:1; min-width:0;"><div style="font-size:14px; color:'+INK+'; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(a.athleteName)+'</div>';
+    }
     var sectorLine = a.roundAbsent
       ? '<span style="color:#A33; font-weight:bold;">ΑΠΩΝ</span> · Τομέας '+sectorLabel(a.sector)
       : a.sector === null
       ? '<span style="color:#A33; font-weight:bold;">ΑΠΩΝ</span>'
       : 'Τομέας '+sectorLabel(a.sector)+' / Θέση '+a.localPosition;
-    html += '<div style="font-size:11.5px; color:#8A93A0;">'+esc(a.clubName)+' · '+sectorLine+(a.sponsor?' <span style="color:#B8862F; font-style:italic;">· '+esc(a.sponsor)+'</span>':'')+'</div></div>';
+    html += '<div style="font-size:11.5px; color:#8A93A0;">'+(a.members ? '👥 ' : esc(a.clubName)+' · ')+sectorLine+(a.sponsor?' <span style="color:#B8862F; font-style:italic;">· '+esc(a.sponsor)+'</span>':'')+'</div></div>';
     html += '<div style="text-align:right; flex-shrink:0;"><div style="font-size:13px; font-weight:bold; color:'+NAVY+';">'+a.score+' Β/Π</div>';
     html += '<div style="font-size:11px; color:#8A93A0;">'+(a.sector===null?'—':a.weight+' γρ.')+'</div></div>';
     html += '</div>';
@@ -2734,6 +2746,11 @@ function renderTeamRanking(){
   return html;
 }
 
+// Club mark: logo, or a coloured dot when the club has no logo.
+function clubMark(logo, color, size){
+  return logo ? '<img src="'+logo+'" style="width:'+size+'px;height:'+size+'px;border-radius:50%;object-fit:cover;flex-shrink:0;" />'
+    : '<span style="width:'+Math.round(size*0.6)+'px;height:'+Math.round(size*0.6)+'px;border-radius:50%;background:'+(color||"#8A93A0")+';display:inline-block;flex-shrink:0;"></span>';
+}
 function athleteCell(r){
   var h = '<div style="flex:1; min-width:110px;"><div style="font-size:13.5px; color:'+INK+'; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(r.athleteName)+'</div>';
   h += '<div style="font-size:11px; color:#8A93A0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(r.clubName || "")+'</div>';
@@ -2787,7 +2804,7 @@ function renderSeries(){
   html += '<div style="background:#fff; border:1px solid #E4DFCF; border-radius:5px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#5A6472; line-height:1.6;">';
   state.seriesRaces.forEach(function(r, i){
     var dateStr = new Date(r.savedAt).toLocaleDateString("el-GR", { day:"2-digit", month:"2-digit", year:"numeric" });
-    html += '<div><b style="color:'+NAVY+';">'+(i+1)+'ος</b> · '+esc(r.name)+' <span style="color:#8A93A0;">('+dateStr+')</span></div>';
+    html += '<div style="padding:2px 0;"><b style="color:'+NAVY+';">'+(i+1)+'ος</b> · '+esc(r.name)+' <span style="color:#8A93A0;">('+dateStr+')</span>'+seriesRaceExtra(r, false)+'</div>';
   });
   html += '</div>';
   html += '<div style="background:#fff; border:1px solid #E4DFCF; border-radius:5px; overflow-x:auto;">';
@@ -2923,12 +2940,15 @@ function renderDraw(){
       html += '<div style="width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;flex-shrink:0;z-index:1;background:'+(filled?NAVY:"#fff")+';border:2px solid '+(filled?GOLD:"#D8D2C0")+';color:'+(filled?"#fff":"#B7BFC9")+';">'+p+'</div>';
       html += '<div style="font-size:13.5px; display:flex; align-items:center; gap:6px; flex:1; min-width:0;">';
       if (filled){
-        if (slot.logo) html += '<img src="'+slot.logo+'" style="width:16px;height:16px;border-radius:50%;object-fit:cover;" />';
-        else html += '<span style="width:9px;height:9px;border-radius:50%;background:'+slot.color+';display:inline-block;flex-shrink:0;"></span>';
+        if (!slot.members){
+          if (slot.logo) html += '<img src="'+slot.logo+'" style="width:16px;height:16px;border-radius:50%;object-fit:cover;" />';
+          else html += '<span style="width:9px;height:9px;border-radius:50%;background:'+slot.color+';display:inline-block;flex-shrink:0;"></span>';
+        }
         if (slot.members){
-          html += '<span style="display:flex; flex-direction:column; min-width:0; line-height:1.25;">';
+          // Ζευγάρι: each partner on his own line with his own club logo.
+          html += '<span style="display:flex; flex-direction:column; gap:2px; min-width:0; line-height:1.25;">';
           slot.members.forEach(function(m){
-            html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(m.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(m.clubName)+'</span></span>';
+            html += '<span style="display:flex; align-items:center; gap:6px; min-width:0;">'+clubMark(m.logo, m.color, 16)+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(m.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(m.clubName)+'</span></span></span>';
           });
           html += '</span><span title="Ζευγάρι" style="flex-shrink:0; font-size:10px; color:#B8862F; font-weight:bold;">👥</span>';
         } else {
