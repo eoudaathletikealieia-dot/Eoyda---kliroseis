@@ -74,10 +74,23 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "04.10.2026 · v16";
+var APP_VERSION = "05.10.2026 · v17";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
-function quotaNoteHtml(){
-  return '<div style="background:#FBF6E8; border:1px solid #E6D3A3; border-left:3px solid #B8862F; border-radius:4px; padding:8px 10px; margin:10px 0; font-size:12px; color:#5A4A22; line-height:1.5;">⚠️ '+esc(QUOTA_NOTE)+'</div>';
+var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
+// Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
+function quotaFinalNote(Q){
+  var d = Q.lockedAt ? new Date(Q.lockedAt).toLocaleDateString("el-GR") : "";
+  return "Οριστική κατανομή. Η ποσόστωση κάθε Περιφέρειας οριστικοποιήθηκε" + (d ? " στις " + d : "") + " με βάση τον τελικό αριθμό έγκυρων συμμετοχών ανά Περιφέρεια.";
+}
+function quotaNoteHtml(Q){
+  Q = Q || computeQuota();
+  if (Q.final) return '<div style="background:#EEF6EF; border:1px solid #A9CDB0; border-left:3px solid '+Q_GREEN+'; border-radius:4px; padding:8px 10px; margin:10px 0; font-size:12px; color:#1F4A2A; line-height:1.5;">🔒 '+esc(quotaFinalNote(Q))+'</div>';
+  return '<div style="background:#FDF1E6; border:1px solid #EBC29E; border-left:3px solid '+Q_ORANGE+'; border-radius:4px; padding:8px 10px; margin:10px 0; font-size:12px; color:#6B3410; line-height:1.5;">⚠️ '+esc(QUOTA_NOTE)+(Q.rows.length ? ' <b>(κλειδωμένες '+Q.lockedCount+' από '+Q.rows.length+' Περιφέρειες)</b>' : '')+'</div>';
+}
+function quotaNotePrint(Q){
+  Q = Q || computeQuota();
+  var c = Q.final ? Q_GREEN : Q_ORANGE;
+  return '<div style="border:1px solid '+c+'; border-left:3px solid '+c+'; padding:4px 7px; margin:0 0 8px; font-size:8pt; color:'+(Q.final?'#1F4A2A':'#6B3410')+'; line-height:1.4;"><b>'+(Q.final?'Οριστική κατανομή:':'Σημείωση:')+'</b> '+esc(Q.final ? quotaFinalNote(Q).replace(/^Οριστική κατανομή\. /, '') : QUOTA_NOTE)+'</div>';
 }
 // «ΟΠΕΝ»: athletes not registered with a club — Φιλικοί only.
 var OPEN_CLUB_NAME = "ΟΠΕΝ";
@@ -866,6 +879,7 @@ function openSeriesRanking(){
   state.seriesInvalidCount = res.invalid.length;
   state.seriesNeed = res.need;
   state.seriesQualifies = qualifies;
+  state.seriesQuotaFinal = computeQuota().final;
   state.stage = "series";
   render();
 }
@@ -904,8 +918,11 @@ function computeQuota(){
     var auto = g.races.length ? computeSeries(g.races, q.minRaces).valid.length : null;
     var manualRaw = (q.manual || {})[g.region];
     var manual = manualRaw === undefined || manualRaw === "" ? null : parseInt(manualRaw, 10);
+    var lock = quotaLockOf(g.region);
     return { region: g.region, races: g.races.length, auto: auto, manual: isNaN(manual) ? null : manual,
-      valid: manual !== null && !isNaN(manual) ? manual : (auto || 0) };
+      // Κλειδωμένη περιφέρεια: οι έγκυροι μένουν όπως ήταν τη στιγμή του κλειδώματος.
+      locked: !!lock, lockedAt: lock ? lock.at : null,
+      valid: lock ? lock.valid : (manual !== null && !isNaN(manual) ? manual : (auto || 0)) };
   }).sort(function(a,b){ return a.region.localeCompare(b.region, "el"); });
   var total = rows.reduce(function(s,r){ return s + r.valid; }, 0);
   var places = parseInt(q.places, 10) || 0;
@@ -918,7 +935,29 @@ function computeQuota(){
   rows.slice().sort(function(a,b){ return (b.rem - a.rem) || (b.valid - a.valid); }).forEach(function(r){
     if (left > 0 && total > 0){ r.places++; r.bonus = true; left--; }
   });
-  return { rows: rows, total: total, places: places };
+  var locked = rows.filter(function(r){ return r.locked; });
+  var lastAt = locked.reduce(function(m, r){ return !m || r.lockedAt > m ? r.lockedAt : m; }, null);
+  return { rows: rows, total: total, places: places, lockedCount: locked.length,
+    final: rows.length > 0 && locked.length === rows.length, lockedAt: lastAt };
+}
+function quotaLockOf(region){
+  var L = state.quota.locked || {}, k = normalizeClubName(region);
+  for (var r in L) if (normalizeClubName(r) === k) return L[r];
+  return null;
+}
+function lockQuotaRegion(region){
+  var row = computeQuota().rows.find(function(r){ return normalizeClubName(r.region) === normalizeClubName(region); });
+  if (!row) return;
+  if (!window.confirm("Κλείδωμα της Περιφέρειας «" + region + "» με " + row.valid + " έγκυρους;\n\nΟ αριθμός παγώνει και δεν αλλάζει από νέους αγώνες. Όταν κλειδώσουν όλες οι Περιφέρειες, η κατανομή γίνεται οριστική.")) return;
+  state.quota.locked = state.quota.locked || {};
+  state.quota.locked[region] = { valid: row.valid, at: new Date().toISOString() };
+  persistQuota(); render();
+}
+function unlockQuotaRegion(region){
+  if (!window.confirm("Ξεκλείδωμα της Περιφέρειας «" + region + "»;\n\nΗ κατανομή γίνεται ξανά προσωρινή.")) return;
+  var L = state.quota.locked || {}, k = normalizeClubName(region);
+  Object.keys(L).forEach(function(r){ if (normalizeClubName(r) === k) delete L[r]; });
+  persistQuota(); render();
 }
 function goQuota(){ state.stage = "quota"; render(); }
 function setQuotaPlaces(v){ state.quota.places = parseInt(String(v).replace(/[^0-9]/g, ""), 10) || 0; persistQuota(); render(); }
@@ -939,6 +978,7 @@ function addQuotaRegion(){
 }
 function removeQuotaRegion(region){
   if (state.quota.manual) delete state.quota.manual[region];
+  if (state.quota.locked) Object.keys(state.quota.locked).forEach(function(r){ if (normalizeClubName(r) === normalizeClubName(region)) delete state.quota.locked[r]; });
   persistQuota(); render();
 }
 
@@ -949,7 +989,7 @@ function exportSeriesToExcel(){
   var rows = state.seriesRows.concat(state.seriesInvalid || []).map(function(a){
     var r = [a.place, a.athleteName, a.clubName, a.sponsor || ""];
     a.per.forEach(function(x){ r.push(x.score + (x.missing ? " (ΑΠ)" : ""), x.missing ? "" : x.weight); });
-    r.push(a.totalScore, a.totalWeight, a.raced + "/" + state.seriesRaces.length, a.valid ? "ΝΑΙ" : "ΜΗ ΕΓΚΥΡΟΣ", a.qualifies ? "ΠΡΟΚΡΙΝΕΤΑΙ" : "");
+    r.push(a.totalScore, a.totalWeight, a.raced + "/" + state.seriesRaces.length, a.valid ? "ΝΑΙ" : "ΜΗ ΕΓΚΥΡΟΣ", a.qualifies ? (state.seriesQuotaFinal ? "ΠΡΟΚΡΙΝΕΤΑΙ" : "ΠΡΟΚΡΙΝΕΤΑΙ (ΠΡΟΣΩΡΙΝΑ)") : "");
     return r;
   });
   var today = new Date().toISOString().slice(0,10);
@@ -1270,14 +1310,14 @@ function buildSeriesPrint(){
     h += '<tr><td style="width:34px; vertical-align:top;"><b>'+(i+1)+'ος</b></td><td>'+esc(r.name)+seriesRaceExtra(r, true)+'</td><td class="n" style="vertical-align:top;">'+new Date(r.savedAt).toLocaleDateString("el-GR")+'</td></tr>';
   });
   h += '</table>';
-  if (state.seriesRegion) h += '<div style="border:1px solid #D9C48F; border-left:3px solid #B8862F; padding:4px 7px; margin:0 0 8px; font-size:8pt; color:#5A4A22; line-height:1.4;"><b>Σημείωση:</b> '+esc(QUOTA_NOTE)+'</div>';
+  if (state.seriesRegion) h += quotaNotePrint();
   h += '<table><tr><th class="c">#</th><th>Αθλητής</th><th>Σύλλογος</th>';
   for (var i = 0; i < n; i++) h += '<th class="c">'+(i+1)+'ος</th>';
   h += '<th class="c">Σύνολο</th><th class="n">Βάρος</th></tr>';
   state.seriesRows.forEach(function(a){
     h += '<tr class="'+(a.place<=3?'top':'')+'">'+placeCell(a.place)+athleteTd(a.athleteName, a.sponsor)+'<td>'+esc(a.clubName || '')+'</td>';
     a.per.forEach(function(x){ h += '<td class="c">'+x.score+'<br><span style="font-size:7.5pt;color:#8A93A0;">'+(x.missing?'απ':x.weight+'γ')+'</span></td>'; });
-    h += '<td class="c"><b>'+a.totalScore+'</b>'+(a.qualifies?'<br><span style="font-size:7pt;color:#2E6B3E;font-weight:bold;">ΤΕΛΙΚΟΣ</span>':'')+(a.valid?'':'<br><span style="font-size:7pt;color:#A33;font-weight:bold;">ΜΗ ΕΓΚΥΡΟΣ '+a.raced+'/'+n+'</span>')+'</td><td class="n">'+a.totalWeight+' γρ.</td></tr>';
+    h += '<td class="c"><b>'+a.totalScore+'</b>'+(a.qualifies?'<br><span style="font-size:7pt;color:'+(state.seriesQuotaFinal?Q_GREEN:Q_ORANGE)+';font-weight:bold;">ΤΕΛΙΚΟΣ</span>':'')+(a.valid?'':'<br><span style="font-size:7pt;color:#A33;font-weight:bold;">ΜΗ ΕΓΚΥΡΟΣ '+a.raced+'/'+n+'</span>')+'</td><td class="n">'+a.totalWeight+' γρ.</td></tr>';
   });
   h += '</table>';
   if (state.seriesInvalid && state.seriesInvalid.length){
@@ -2780,17 +2820,21 @@ function renderQuota(){
   html += '<label style="font-size:12px; color:#5A6472;">Θέσεις τελικού<br><input class="input" type="text" inputmode="numeric" style="width:80px; margin-top:4px;" value="'+Q.places+'" onblur="setQuotaPlaces(this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" /></label>';
   html += '<label style="font-size:12px; color:#5A6472;">Έγκυρη συμμετοχή: ελάχιστοι αγώνες<br><input class="input" type="text" inputmode="numeric" style="width:80px; margin-top:4px;" value="'+state.quota.minRaces+'" onblur="setQuotaMin(this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" /></label>';
   html += '</div>';
-  html += quotaNoteHtml();
+  html += quotaNoteHtml(Q);
   html += '<div style="background:#fff; border:1px solid #E4DFCF; border-radius:5px; overflow:hidden;">';
   html += '<div style="display:flex; gap:8px; padding:8px 10px; background:'+NAVY+'; color:#fff; font-size:11.5px; font-weight:bold;"><span style="flex:1;">Περιφέρεια</span><span style="width:74px; text-align:center;">Έγκυροι</span><span style="width:54px; text-align:center;">Θέσεις</span></div>';
   if (!Q.rows.length) html += '<div style="padding:14px; color:#8A93A0; font-size:13px;">Δεν υπάρχουν ακόμα περιφέρειες. Όρισε περιφέρεια στους αποθηκευμένους αγώνες ή πρόσθεσε μία χειροκίνητα παρακάτω.</div>';
   Q.rows.forEach(function(r, i){
-    html += '<div style="display:flex; gap:8px; align-items:center; padding:9px 10px; border-top:'+(i?'1px solid #F0EBDD':'none')+';">';
+    var sc = r.locked ? Q_GREEN : Q_ORANGE;
+    html += '<div style="display:flex; gap:8px; align-items:center; padding:9px 10px; border-top:'+(i?'1px solid #F0EBDD':'none')+'; border-left:4px solid '+sc+'; background:'+(r.locked?'#F3F9F4':'#FFF9F3')+';">';
     html += '<div style="flex:1; min-width:0;"><div style="font-weight:bold; color:'+NAVY+'; font-size:13.5px;">'+esc(r.region)+'</div>';
-    html += '<div style="font-size:10.5px; color:#8A93A0;">'+(r.races ? r.races+' αγώνες στην εφαρμογή · αυτόματα '+r.auto+' έγκυροι' : 'χωρίς αγώνες στην εφαρμογή')+'</div></div>';
-    html += '<input class="input" type="text" inputmode="numeric" style="width:74px; text-align:center; padding:6px;" placeholder="'+(r.auto === null ? '0' : r.auto)+'" value="'+(r.manual === null ? '' : r.manual)+'" onblur="setQuotaManual('+jsStr(r.region)+', this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" title="Κενό = αυτόματα από τους αγώνες" />';
+    html += '<div style="font-size:10.5px; color:#8A93A0;">'+(r.races ? r.races+' αγώνες στην εφαρμογή · αυτόματα '+r.auto+' έγκυροι' : 'χωρίς αγώνες στην εφαρμογή')+'</div>';
+    html += '<div style="font-size:10.5px; font-weight:bold; color:'+sc+';">'+(r.locked ? '🔒 Κλειδωμένη · '+new Date(r.lockedAt).toLocaleDateString("el-GR") : '⏳ Σε εκκρεμότητα')+'</div>';
+    html += '<button onclick="'+(r.locked?'unlockQuotaRegion':'lockQuotaRegion')+'('+jsStr(r.region)+')" style="margin-top:4px; border:1px solid '+sc+'; background:#fff; color:'+sc+'; border-radius:10px; padding:1px 9px; font-size:11px; cursor:pointer; font-family:inherit;">'+(r.locked?'🔓 Ξεκλείδωμα':'🔒 Κλείδωμα')+'</button></div>';
+    if (r.locked) html += '<div style="width:74px; text-align:center; font-size:16px; font-weight:bold; color:'+Q_GREEN+';" title="Κλειδωμένο">'+r.valid+'</div>';
+    else html += '<input class="input" type="text" inputmode="numeric" style="width:74px; text-align:center; padding:6px;" placeholder="'+(r.auto === null ? '0' : r.auto)+'" value="'+(r.manual === null ? '' : r.manual)+'" onblur="setQuotaManual('+jsStr(r.region)+', this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}" title="Κενό = αυτόματα από τους αγώνες" />';
     html += '<div style="width:54px; text-align:center;"><div style="font-size:18px; font-weight:bold; color:'+NAVY+';">'+r.places+'</div><div style="font-size:9.5px; color:#8A93A0;">'+r.exact.toFixed(2)+(r.bonus?' ↑':'')+'</div></div>';
-    if (!r.races) html += '<button class="icon-btn" onclick="removeQuotaRegion('+jsStr(r.region)+')" title="Αφαίρεση">✕</button>';
+    if (!r.races && !r.locked) html += '<button class="icon-btn" onclick="removeQuotaRegion('+jsStr(r.region)+')" title="Αφαίρεση">✕</button>';
     html += '</div>';
   });
   html += '<div style="display:flex; gap:8px; padding:9px 10px; border-top:2px solid '+GOLD+'; font-weight:bold; color:'+NAVY+'; font-size:13.5px;"><span style="flex:1;">Σύνολο</span><span style="width:74px; text-align:center;">'+Q.total+'</span><span style="width:54px; text-align:center;">'+Q.rows.reduce(function(s,r){ return s + r.places; }, 0)+'</span></div>';
@@ -2821,7 +2865,7 @@ function renderSeries(){
     html += '<div style="display:flex; align-items:center; gap:8px; padding:9px 10px; min-width:'+(215+n*46)+'px; border-top:'+(idx===0?"none":"1px solid #F0EBDD")+'; background:'+(top3?"#FBF6E8":"#fff")+';">';
     html += placeBadge(r.place, 28, top3);
     html += athleteCell(r);
-    if (r.qualifies) html += '<span style="flex-shrink:0; background:#2E6B3E; color:#fff; border-radius:9px; padding:1px 6px; font-size:9.5px; font-weight:bold;">ΤΕΛΙΚΟΣ</span>';
+    if (r.qualifies) html += '<span title="'+(state.seriesQuotaFinal?'Οριστική πρόκριση':'Προσωρινή πρόκριση')+'" style="flex-shrink:0; background:'+(state.seriesQuotaFinal?Q_GREEN:Q_ORANGE)+'; color:#fff; border-radius:9px; padding:1px 6px; font-size:9.5px; font-weight:bold;">ΤΕΛΙΚΟΣ</span>';
     if (!r.valid) html += '<span style="flex-shrink:0; border:1px solid #A33; color:#A33; border-radius:9px; padding:0 6px; font-size:9.5px; font-weight:bold; text-align:center; line-height:1.3;">ΜΗ ΕΓΚΥΡΟΣ<br>'+r.raced+'/'+n+'</span>';
     r.per.forEach(function(x, i){ html += raceCell((i+1)+'ος', x); });
     html += '<div style="text-align:right; min-width:52px; flex-shrink:0;"><div style="font-size:13.5px; font-weight:bold; color:'+NAVY+';">'+r.totalScore+'</div>';
