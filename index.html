@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "05.10.2026 · v17";
+var APP_VERSION = "14.10.2026 · v18";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -1843,12 +1843,24 @@ function findAthlete(id){
   }
   return null;
 }
-function validPairs(){
-  return (state.pairCfg.list || []).filter(function(p){ return findAthlete(p.a) && findAthlete(p.b); });
+// Εγγραφές της λίστας: { a, b } = ζευγάρι, { a, b: null } = αθλητής που
+// αγωνίζεται μόνος του. Απορρίπτονται αθλητές που δεν υπάρχουν πια, ζευγάρι
+// με τον εαυτό του και όποιος υπάρχει ήδη σε άλλη εγγραφή.
+function pairEntries(){
+  var seen = {}, out = [];
+  (state.pairCfg.list || []).forEach(function(p){
+    if (!p || !p.a || !findAthlete(p.a) || seen[p.a]) return;
+    if (p.b){
+      if (p.b === p.a || !findAthlete(p.b) || seen[p.b]) return;
+      seen[p.a] = seen[p.b] = true; out.push(p);
+    } else { seen[p.a] = true; out.push({ id: p.id, a: p.a, b: null }); }
+  });
+  return out;
 }
+function validPairs(){ return pairEntries().filter(function(p){ return !!p.b; }); }
 function pairedIds(){
   var m = {};
-  validPairs().forEach(function(p){ m[p.a] = p.id; m[p.b] = p.id; });
+  pairEntries().forEach(function(p){ m[p.a] = p.id; if (p.b) m[p.b] = p.id; });
   return m;
 }
 function setPairsEnabled(on){ state.pairCfg.enabled = !!on; persistPairs(); render(); }
@@ -1856,9 +1868,12 @@ function setPairWeigh(v){ state.pairCfg.weigh = v === "each" ? "each" : "pair"; 
 function addPair(){
   var a = document.getElementById("pairA"), b = document.getElementById("pairB");
   var ia = a ? a.value : "", ib = b ? b.value : "";
-  if (!ia || !ib || ia === ib) return;
-  state.pairCfg.list = validPairs();
-  state.pairCfg.list.push({ id: uid(), a: ia, b: ib });
+  if (ia && ib && ia === ib) return;
+  if (!ia && !ib) return;
+  state.pairCfg.list = pairEntries();
+  // Μόνο ένας επιλεγμένος → αγωνίζεται μόνος του.
+  if (ia && ib) state.pairCfg.list.push({ id: uid(), a: ia, b: ib });
+  else state.pairCfg.list.push({ id: uid(), a: ia || ib, b: null });
   persistPairs(); render();
 }
 function removePair(id){
@@ -1889,7 +1904,10 @@ function friendlyEntries(){
       else if (here.length === 1) entries.push({ athlete: here[0].athlete, club: here[0].club });
     });
   }
-  activeClubs().forEach(function(c){ c.athletes.forEach(function(a){ if (!inPair[a.id]) entries.push({ athlete: a, club: c }); }); });
+  // Αθλητές που δηλώθηκαν να αγωνίζονται μόνοι τους: δική τους θέση.
+  var solo = {};
+  if (pairsActive()) pairEntries().forEach(function(p){ if (!p.b) solo[p.a] = true; });
+  activeClubs().forEach(function(c){ c.athletes.forEach(function(a){ if (!inPair[a.id] || solo[a.id]) entries.push({ athlete: a, club: c }); }); });
   return entries;
 }
 function setMemberWeight(entryId, idx, value){
@@ -2436,12 +2454,20 @@ function renderPairsSetup(){
   html += '<label><input type="radio" name="pw" '+(cfg.weigh!=="each"?'checked':'')+' onchange="setPairWeigh(\'pair\')" /> Ένα κοινό βάρος ανά ζευγάρι</label>';
   html += '<label><input type="radio" name="pw" '+(cfg.weigh==="each"?'checked':'')+' onchange="setPairWeigh(\'each\')" /> Βάρος ανά αθλητή (άθροισμα)</label>';
   html += '</div>';
-  var pairs = validPairs(), inPair = pairedIds();
+  var pairs = validPairs(), list = pairEntries(), inPair = pairedIds();
   var all = [];
   modeClubs().forEach(function(c){ c.athletes.forEach(function(a){ all.push({ a: a, c: c }); }); });
   all.sort(function(x,y){ return String(x.a.name).localeCompare(String(y.a.name), "el"); });
-  pairs.forEach(function(p, i){
-    var A = findAthlete(p.a), B = findAthlete(p.b);
+  list.forEach(function(p, i){
+    var A = findAthlete(p.a), B = p.b ? findAthlete(p.b) : null;
+    if (!B){
+      html += '<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-top:'+(i?'1px solid #F0EBDD':'none')+';">';
+      html += '<span style="font-size:11px; color:#B8862F; font-weight:bold; width:22px;">'+(i+1)+'.</span>';
+      html += '<div style="flex:1; min-width:0; font-size:12.5px; line-height:1.35;"><div style="display:flex; align-items:center; gap:6px;">'+clubMark(A.club.logo, A.club.color, 14)+'<span>'+esc(A.athlete.name)+' <span style="color:#8A93A0; font-size:11px;">· '+esc(A.club.name)+'</span></span></div>' +
+        '<div style="font-size:11px; color:#8A93A0;">👤 αγωνίζεται μόνος του</div></div>';
+      html += '<button class="icon-btn" onclick="removePair('+jsStr(p.id)+')" title="Αφαίρεση από τη λίστα">✕</button></div>';
+      return;
+    }
     html += '<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-top:'+(i?'1px solid #F0EBDD':'none')+';">';
     html += '<span style="font-size:11px; color:#B8862F; font-weight:bold; width:22px;">'+(i+1)+'.</span>';
     html += '<div style="flex:1; min-width:0; font-size:12.5px; line-height:1.35;">' +
@@ -2454,7 +2480,8 @@ function renderPairsSetup(){
       free.map(function(x){ return '<option value="'+esc(x.a.id)+'">'+esc(x.a.name)+' · '+esc(x.c.name)+'</option>'; }).join('') + '</select>';
   }
   html += '<div style="display:flex; gap:6px; align-items:center; margin-top:8px;">'+sel("pairA")+'<span style="color:#8A93A0;">+</span>'+sel("pairB")+'<button class="btn-primary-sm" onclick="addPair()" title="Νέο ζευγάρι">＋</button></div>';
-  html += '<div style="font-size:11.5px; color:#8A93A0; margin-top:6px;">'+pairs.length+' ζευγάρια · '+free.length+' αθλητές χωρίς ταίρι (αγωνίζονται μόνοι τους, ο καθένας σε δική του θέση)</div>';
+  html += '<div style="font-size:11px; color:#8A93A0; margin-top:4px;">Για αθλητή που αγωνίζεται μόνος του: διάλεξε μόνο τον έναν αθλητή και πάτα ＋.</div>';
+  html += '<div style="font-size:11.5px; color:#8A93A0; margin-top:6px;">'+pairs.length+' ζευγάρια · '+(free.length + list.length - pairs.length)+' αθλητές χωρίς ταίρι (αγωνίζονται μόνοι τους, ο καθένας σε δική του θέση)</div>';
   return html + '</div>';
 }
 
