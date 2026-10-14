@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "14.10.2026 · v18";
+var APP_VERSION = "14.10.2026 · v19";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -285,6 +285,7 @@ var state = {
   error: "",
   pendingDelete: null,
   editingSponsorFor: null,
+  editClub: null,      // πρόχειρο επεξεργασίας συλλόγου (ένας κάθε φορά)
   rosterLoaded: false,
   weights: {},
   rankings: null,
@@ -1519,6 +1520,165 @@ function setClubLogoUrl(clubId, url){
   render();
 }
 
+
+/* ---------- Επεξεργασία συλλόγου και αθλητών ---------- */
+function cleanName(v){ return String(v == null ? "" : v).replace(/\s+/g, " ").trim(); }
+function startEditClub(id, fromManage){
+  var c = findClub(id);
+  if (!c) return;
+  state.editClub = {
+    id: c.id, name: c.name, logo: c.logo || null, logoUrl: c.logo && String(c.logo).indexOf("http") === 0 ? c.logo : "",
+    athletes: c.athletes.map(function(a){ return { id: a.id, name: a.name, sponsor: a.sponsor || "" }; }),
+    applySaved: true, error: ""
+  };
+  state.pendingDelete = null;
+  if (fromManage) state.stage = "setup";
+  render();
+  setTimeout(function(){
+    var el = document.getElementById("clubEdit-" + id);
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 30);
+}
+function cancelEditClub(){ state.editClub = null; render(); }
+function setEditField(field, value){ if (state.editClub) state.editClub[field] = value; }
+function setEditAthlete(idx, field, value){
+  var e = state.editClub;
+  if (e && e.athletes[idx]) e.athletes[idx][field] = value;
+}
+function editLogoFile(file){
+  if (!file || !state.editClub) return;
+  var reader = new FileReader();
+  reader.onload = function(){ if (state.editClub){ state.editClub.logo = reader.result; state.editClub.logoUrl = ""; render(); } };
+  reader.readAsDataURL(file);
+}
+function editLogoUrl(url){
+  var e = state.editClub;
+  if (!e) return;
+  url = String(url || "").trim();
+  e.logoUrl = url;
+  if (url) e.logo = url;
+  render();
+}
+function editLogoClear(){ if (state.editClub){ state.editClub.logo = null; state.editClub.logoUrl = ""; render(); } }
+
+function saveEditClub(){
+  var e = state.editClub;
+  if (!e) return;
+  var c = findClub(e.id);
+  if (!c){ state.editClub = null; render(); return; }
+  var newName = cleanName(e.name);
+  if (!newName){ e.error = "Το όνομα του συλλόγου δεν μπορεί να είναι κενό."; render(); return; }
+  var clash = state.clubs.find(function(x){ return x.id !== c.id && normalizeClubName(x.name) === normalizeClubName(newName); });
+  if (clash){ e.error = "Υπάρχει ήδη σύλλογος «" + clash.name + "»."; render(); return; }
+
+  var oldName = c.name, oldLogo = c.logo || null;
+  var isDefault = DEFAULT_ROSTER_RAW.some(function(r){ return r[0] === oldName; });
+  if (newName !== oldName && isDefault && !c.defaultName) c.defaultName = oldName;
+  c.name = newName;
+  c.logo = e.logo || null;
+  // Βασικός σύλλογος χωρίς λογότυπο: να μη ξαναμπαίνει το προεπιλεγμένο στην εκκίνηση.
+  var defKey = c.defaultName || c.name;
+  if (!c.logo && DEFAULT_LOGOS[defKey]) c.noLogo = true; else delete c.noLogo;
+
+  // Αθλητές: ίδιο id, νέο όνομα/χορηγός· κενό όνομα → κρατιέται το παλιό.
+  var athleteChanges = {};   // id → { oldName, name, sponsor }
+  e.athletes.forEach(function(ea){
+    var a = c.athletes.find(function(x){ return x.id === ea.id; });
+    if (!a) return;
+    var nm = cleanName(ea.name) || a.name, sp = cleanName(ea.sponsor);
+    athleteChanges[a.id] = { oldName: a.name, name: nm, sponsor: sp };
+    a.name = nm; a.sponsor = sp;
+  });
+
+  // Βιβλιοθήκη «Από προηγούμενες κληρώσεις».
+  if (newName !== oldName) state.library = state.library.filter(function(l){ return l.name !== oldName; });
+  upsertLibrary(c.name, c.logo);
+  if (normalizeClubName(state.raceInfo.organizer || "") === normalizeClubName(oldName)){ state.raceInfo.organizer = c.name; persistRaceInfo(); }
+
+  if (e.applySaved) applyClubEditToSavedDraws(c, oldName, oldLogo, athleteChanges);
+  persistRoster();
+  state.editClub = null;
+  render();
+}
+
+// Διόρθωση στους αποθηκευμένους αγώνες: ονόματα, χορηγοί και λογότυπο.
+// Τα αποτελέσματα (βάρη, βαθμοί, θέσεις) δεν αλλάζουν.
+function applyClubEditToSavedDraws(c, oldName, oldLogo, changes){
+  var oldKey = normalizeClubName(oldName);
+  var byOldName = {};
+  Object.keys(changes).forEach(function(id){ byOldName[seriesKey(changes[id].oldName)] = changes[id]; });
+  function sameClub(x){ return x && (x.clubId === c.id || normalizeClubName(x.clubName) === oldKey); }
+  function athleteChange(id, name){ return changes[id] || byOldName[seriesKey(name)] || null; }
+  function fixMember(m){
+    if (!sameClub({ clubId: null, clubName: m.clubName }) && !changes[m.id]) return;
+    m.clubName = c.name; m.logo = c.logo || null;
+    var ch = athleteChange(m.id, m.name);
+    if (ch){ m.name = ch.name; m.sponsor = ch.sponsor; }
+  }
+  function fixFlat(list){
+    (list || []).forEach(function(f){
+      if (f.members && f.members.length){
+        f.members.forEach(fixMember);
+        f.athleteName = f.members.map(function(m){ return m.name; }).join(" / ");
+        var clubs = [], sps = [];
+        f.members.forEach(function(m){ if (clubs.indexOf(m.clubName) === -1) clubs.push(m.clubName); if (m.sponsor && sps.indexOf(m.sponsor) === -1) sps.push(m.sponsor); });
+        f.clubName = clubs.join(" / "); f.sponsor = sps.join(" / ");
+        if (f.members[0]) f.logo = f.members[0].logo;
+        return;
+      }
+      if (!sameClub(f)) return;
+      f.clubName = c.name; f.logo = c.logo || null;
+      var ch = athleteChange(f.athleteId, f.athleteName);
+      if (ch){ f.athleteName = ch.name; f.sponsor = ch.sponsor; }
+    });
+  }
+  state.savedDraws.forEach(function(d){
+    fixFlat(d.flatAssignments);
+    (d.rounds || []).forEach(function(r){ if (r.flatAssignments !== d.flatAssignments) fixFlat(r.flatAssignments); });
+    (d.teams || []).forEach(function(t){
+      if (!sameClub(t)) return;
+      t.clubName = c.name; t.logo = c.logo || null;
+    });
+    (d.absentAthletes || []).forEach(function(a){
+      if (normalizeClubName(a.clubName) !== oldKey) return;
+      a.clubName = c.name;
+      var ch = byOldName[seriesKey(a.name)];
+      if (ch) a.name = ch.name;
+    });
+    if (d.raceInfo && normalizeClubName(d.raceInfo.organizer || "") === oldKey) d.raceInfo.organizer = c.name;
+  });
+  storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
+}
+
+function renderClubEditForm(club){
+  var e = state.editClub;
+  var html = '<div id="clubEdit-'+club.id+'" class="club-card" style="border:2px solid '+GOLD+'; box-shadow:0 0 0 3px #FBF3DA;">';
+  html += '<div style="font-family:Georgia,serif; font-size:15px; color:'+NAVY+'; margin-bottom:10px;">✏️ Επεξεργασία συλλόγου</div>';
+  html += '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">';
+  html += e.logo ? '<img src="'+e.logo+'" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;box-shadow:0 0 0 1px #E4DFCF;" />'
+    : '<span style="width:44px;height:44px;border-radius:50%;background:'+club.color+';display:inline-block;flex-shrink:0;"></span>';
+  html += '<label class="btn-secondary" style="cursor:pointer; font-size:12.5px; padding:6px 10px;">🖼 Αλλαγή λογότυπου<input type="file" accept="image/*" style="display:none" onchange="editLogoFile(this.files[0])" /></label>';
+  if (e.logo) html += '<button style="border:1px solid #CFC7B0; background:#fff; color:#5A6472; border-radius:4px; padding:4px 9px; cursor:pointer; font-size:12px; font-family:inherit;" onclick="editLogoClear()">✕ Χωρίς λογότυπο</button>';
+  html += '</div>';
+  html += '<input type="text" class="input" style="width:100%; font-size:12px; margin-bottom:10px;" placeholder="ή URL εικόνας λογότυπου" value="'+esc(e.logoUrl || "")+'" onblur="editLogoUrl(this.value)" />';
+  html += '<label style="display:block; font-size:12px; color:#5A6472; margin-bottom:3px;">Όνομα συλλόγου</label>';
+  html += '<input type="text" class="input" style="width:100%; font-size:14px; margin-bottom:10px;" value="'+esc(e.name)+'" oninput="setEditField(\'name\', this.value)" />';
+  if (e.athletes.length){
+    html += '<div style="display:flex; gap:6px; font-size:11px; color:#8A93A0; margin-bottom:3px;"><span style="flex:2;">Αθλητής</span><span style="flex:1;">Χορηγός</span></div>';
+    e.athletes.forEach(function(a, i){
+      html += '<div style="display:flex; gap:6px; margin-bottom:5px;">';
+      html += '<input type="text" class="input" style="flex:2; min-width:0; font-size:13px; padding:6px;" value="'+esc(a.name)+'" oninput="setEditAthlete('+i+', \'name\', this.value)" />';
+      html += '<input type="text" class="input" style="flex:1; min-width:0; font-size:12px; padding:6px;" placeholder="Χορηγός" value="'+esc(a.sponsor)+'" oninput="setEditAthlete('+i+', \'sponsor\', this.value)" />';
+      html += '</div>';
+    });
+  }
+  html += '<label style="display:flex; gap:8px; align-items:flex-start; margin:10px 0 4px; font-size:12.5px; color:'+NAVY+'; cursor:pointer;"><input type="checkbox" '+(e.applySaved?'checked':'')+' onchange="setEditField(\'applySaved\', this.checked)" style="width:17px;height:17px;margin-top:1px;" />' +
+    '<span>Διόρθωση και στους αποθηκευμένους αγώνες<br><span style="font-size:11px; color:#8A93A0;">ονόματα, χορηγοί και λογότυπο· τα αποτελέσματα δεν αλλάζουν</span></span></label>';
+  if (e.error) html += '<div class="error-text">'+esc(e.error)+'</div>';
+  html += '<div style="display:flex; gap:8px; margin-top:10px;"><button class="btn-primary-sm" style="padding:9px 16px;" onclick="saveEditClub()">💾 Αποθήκευση</button><button class="btn-secondary" onclick="cancelEditClub()">Άκυρο</button></div>';
+  return html + '</div>';
+}
+
 function updateAthleteSponsor(clubId, athleteId, sponsor){
   var c = findClub(clubId);
   if (c){
@@ -2329,7 +2489,7 @@ function deleteSavedDraw(id){
   });
 }
 
-function goManage(){ state.stage = "manage"; render(); }
+function goManage(){ state.editClub = null; state.stage = "manage"; render(); }
 function goSetup(){ state.stage = "setup"; render(); }
 function goSavedDraws(){ state.stage = "savedDraws"; state.importMsg = ""; render(); }
 function savedDrawsForMode(mode){ return state.savedDraws.filter(function(d){ return drawModeOf(d) === mode; }); }
@@ -2547,6 +2707,7 @@ function renderSetup(){
   }
 
   clubs.forEach(function(club){
+    if (state.editClub && state.editClub.id === club.id){ html += renderClubEditForm(club); return; }
     var teamIds = isPan ? teamMemberIdsForClub(club) : [];
     html += '<div class="club-card">';
     html += '<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">';
@@ -2559,6 +2720,7 @@ function renderSetup(){
         'style="width:34px; border:1px solid #CFC7B0; border-radius:3px; padding:3px 4px; font-size:12px; text-align:center;" /></label>';
     }
     html += '<label style="cursor:pointer; color:#8A93A0;" title="Λογότυπο (αρχείο)">🖼<input type="file" accept="image/*" style="display:none" onchange="handleLogoFile('+jsStr(club.id)+', this.files[0])" /></label>';
+    html += '<button onclick="startEditClub('+jsStr(club.id)+')" title="Επεξεργασία συλλόγου και αθλητών" style="border:1px solid #CFC7B0; background:#fff; border-radius:4px; padding:2px 6px; cursor:pointer; font-size:13px; line-height:1.2;">✏️</button>';
     var clubArmed = state.pendingDelete === "club-"+club.id;
     html += '<button class="'+(clubArmed?"icon-btn-armed":"icon-btn")+'" onclick="removeClub('+jsStr(club.id)+')">'+(clubArmed?"Σίγουρα;":"✕")+'</button>';
     html += '</div>';
@@ -2656,6 +2818,7 @@ function renderManage(){
       html += '<button class="icon-btn-armed" onclick="removeClub('+jsStr(club.id)+')" style="margin-right:6px;">Οριστική διαγραφή</button>';
       html += '<button class="btn-ghost-sm" onclick="state.pendingDelete=null; render();">Άκυρο</button>';
     } else {
+      html += '<button style="margin-right:6px; border:1px solid #CFC7B0; background:#fff; color:#5A6472; border-radius:4px; padding:4px 9px; cursor:pointer; font-size:12px; font-family:inherit;" onclick="startEditClub('+jsStr(club.id)+', true)">✏️ Επεξεργασία</button>';
       html += '<button class="icon-btn" onclick="removeClub('+jsStr(club.id)+')">✕ Διαγραφή συλλόγου</button>';
     }
     html += '</div>';
@@ -3148,10 +3311,11 @@ function renderDraw(){
     var loadedRoster = null;
     if (rosterVal){ try { loadedRoster = JSON.parse(rosterVal); } catch(e){} }
     if (loadedRoster && loadedRoster.length > 0){
-      var merged = loadedRoster.map(function(c){ return Object.assign({}, c, { logo: c.logo || DEFAULT_LOGOS[c.name] || null }); });
+      var merged = loadedRoster.map(function(c){ return Object.assign({}, c, { logo: c.logo || (c.noLogo ? null : (DEFAULT_LOGOS[c.defaultName || c.name] || null)) }); });
       DEFAULT_ROSTER_RAW.forEach(function(entry){
         var clubName = entry[0];
-        if (!merged.some(function(c){ return c.name === clubName; })){
+        // Μετονομασμένος βασικός σύλλογος: θεωρείται παρών μέσω του defaultName.
+        if (!merged.some(function(c){ return c.name === clubName || c.defaultName === clubName; })){
           merged.push({ id: uid(), name: clubName, color: CLUB_COLORS[merged.length % CLUB_COLORS.length], logo: DEFAULT_LOGOS[clubName] || null, athletes: [] });
         }
       });
