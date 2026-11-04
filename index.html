@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "03.11.2026 · v27";
+var APP_VERSION = "04.11.2026 · v28";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -103,6 +103,7 @@ var REMOVED_DEFAULTS_KEY = "state/removed_defaults";
 var REGION_SEL_KEY = "state/region_sel";
 var REGION_ORDER_KEY = "state/region_order";
 var ATHLETE_MEMO_KEY = "state/athlete_memo";
+var PAN_RED_CARRY_KEY = "state/pan_red_carry";
 /* ---------- Λίστα συμμετοχών 2026-27 (Περιφερειακά) ---------- */
 var ENTRY_LIST_DATE = "30/10/2026";
 var ENTRY_REGIONS = [
@@ -287,7 +288,10 @@ var state = {
   teams: [],
   teamStandings: [],
   teamRankings: null,
-  roundAbsent: {},
+  roundAbsent: {},     // κατάσταση αθλητή στον αγώνα: "absent" | "red" | "aband" (παλιά: true = absent)
+  cards: {},           // κίτρινες / αιτιολογία ανά αθλητή: { id: { y: 0, note: "" } }
+  loadedDrawId: null,  // ποιος αποθηκευμένος αγώνας είναι ανοιχτός (για τις κίτρινες προηγούμενων αγώνων)
+  panRedCarry: false,  // Πανελλήνιο: κόκκινη σε αγωνιστική = αποκλεισμός και από τις επόμενες
   rounds: null,        // Πανελλήνιο: the 3 αγωνιστικές of one championship draw
   currentRound: 0,
   champTab: "ind",
@@ -416,7 +420,7 @@ function goHome(){
   state.teams = [];
   state.teamStandings = [];
   state.rounds = null;
-  state.roundAbsent = {};
+  state.roundAbsent = {}; state.cards = {};
   state.saveNameInput = "";
   state.error = "";
   state.stage = "home";
@@ -546,7 +550,7 @@ function arrangeSeatsNoAdjacentSameClub(members){
 /* ---------- Πανελλήνιο: 3 αγωνιστικές ---------- */
 // The working copy (state.flatAssignments, weights, …) is always the round
 // on screen; switching rounds writes it back into state.rounds first.
-var ROUND_FIELDS = ["flatAssignments", "sectorCapacities", "weights", "rankings", "teamRankings", "roundAbsent"];
+var ROUND_FIELDS = ["flatAssignments", "sectorCapacities", "weights", "rankings", "teamRankings", "roundAbsent", "cards"];
 function isChampionship(){ return state.mode === "panhellenic" && state.rounds && state.rounds.length > 0; }
 function syncRoundOut(){
   if (!isChampionship()) return;
@@ -558,6 +562,7 @@ function applyRound(i){
   var r = state.rounds[i];
   ROUND_FIELDS.forEach(function(f){ state[f] = r[f]; });
   if (!state.roundAbsent) state.roundAbsent = {};
+  if (!state.cards) state.cards = {};
   if (!state.weights) state.weights = {};
   state.revealedCount = state.flatAssignments.length;
   state.teamStandings = [];
@@ -568,14 +573,125 @@ function goRound(i){
   state.stage = "result";
   render();
 }
-function toggleRoundAbsent(athleteId){
-  if (!state.roundAbsent) state.roundAbsent = {};
-  if (state.roundAbsent[athleteId]) delete state.roundAbsent[athleteId];
-  else state.roundAbsent[athleteId] = true;
-  state.rankings = null;
-  state.teamRankings = null;
+
+/* ---------- Κατάσταση αθλητή στον αγώνα: απών, κόκκινη, εγκατάλειψη (άρθρα 33, 67, 68) ---------- */
+// Και οι τρεις βαθμολογούνται ίδια: σαν να μην παρέστη, με τον μέγιστο βαθμό
+// ποινής του τομέα +1 (μέγεθος τομέα +1· στον τεχνητό, κανονικός τομέας +1).
+// Το ζύγισμα κρατιέται αποθηκευμένο αλλά δεν μετράει.
+var STATUS_LABELS = { absent: "ΑΠΩΝ", red: "ΚΟΚΚΙΝΗ", aband: "ΕΓΚΑΤ." };
+var STATUS_SHORT = { absent: "απ", red: "κόκ", aband: "εγκ" };
+var STATUS_CYCLE = [null, "absent", "red", "aband"];
+var STATUS_BTN = { absent: "ΑΠ", red: "🟥", aband: "ΕΓΚ" };
+function statusOf(map, id){
+  var v = map && map[id];
+  if (!v) return null;
+  return STATUS_LABELS[v] ? v : "absent";
+}
+function statusLabel(st){ return STATUS_LABELS[st] || ""; }
+function statusModeOn(){ return state.mode === "regional" || state.mode === "panhellenic"; }
+function cycleStatus(id){
+  var cur = statusOf(state.roundAbsent, id);
+  setStatus(id, STATUS_CYCLE[(STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length]);
+}
+function setStatus(id, st, silent){
+  state.roundAbsent = state.roundAbsent || {};
+  if (st) state.roundAbsent[id] = st; else delete state.roundAbsent[id];
+  // Πανελλήνιο, με τη ρύθμιση ενεργή: η κόκκινη περνά και στις επόμενες αγωνιστικές.
+  if (isChampionship() && state.panRedCarry){
+    for (var j = state.currentRound + 1; j < state.rounds.length; j++){
+      var r = state.rounds[j];
+      r.roundAbsent = r.roundAbsent || {}; r.cards = r.cards || {};
+      var c = r.cards[id] = r.cards[id] || {};
+      if (st === "red"){
+        if (!r.roundAbsent[id]){ r.roundAbsent[id] = "red"; c.carry = state.currentRound; c.note = c.note || ("Κόκκινη στην " + (state.currentRound + 1) + "η αγωνιστική"); }
+      } else if (c.carry === state.currentRound){
+        delete r.roundAbsent[id]; delete c.carry;
+        if (c.note === "Κόκκινη στην " + (state.currentRound + 1) + "η αγωνιστική") c.note = "";
+      }
+      r.rankings = null; r.teamRankings = null;
+    }
+  }
+  state.rankings = null; state.teamRankings = null;
+  if (!silent) render();
+}
+function toggleRoundAbsent(athleteId){ setStatus(athleteId, statusOf(state.roundAbsent, athleteId) ? null : "absent"); }
+function cardOf(id){ return (state.cards && state.cards[id]) || {}; }
+function setCardNote(id, v){
+  state.cards = state.cards || {};
+  var c = state.cards[id] = state.cards[id] || {};
+  c.note = String(v || "").trim();
+}
+// Κίτρινες προηγούμενων αγώνων της ίδιας διοργάνωσης (άρθρο 68): στο Πανελλήνιο
+// οι προηγούμενες αγωνιστικές· στα Περιφερειακά οι προηγούμενοι αγώνες της ίδιας
+// περιφέρειας σε αυτή τη συσκευή (ταυτοποίηση με το όνομα).
+function priorYellows(id){
+  var slot = (state.flatAssignments || []).find(function(a){ return a.athleteId === id; });
+  if (!slot || slot.members) return 0;
+  var n = 0;
+  if (isChampionship()){
+    for (var j = 0; j < state.currentRound; j++){ var c = (state.rounds[j].cards || {})[id]; if (c && c.y) n += c.y; }
+    return n;
+  }
+  if (state.mode !== "regional") return 0;
+  var reg = String(state.saveRegionInput || (state.regionSel !== null && ENTRY_REGIONS[state.regionSel] ? ENTRY_REGIONS[state.regionSel].name : "")).trim();
+  if (!reg) return 0;
+  var rk = regionKey(reg), key = seriesKey(slot.athleteName);
+  var me = state.loadedDrawId ? state.savedDraws.find(function(d){ return d.id === state.loadedDrawId; }) : null;
+  var before = me ? String(me.savedAt) : "9999";
+  var latest = {};
+  state.savedDraws.forEach(function(d){
+    if (drawModeOf(d) !== "regional" || !d.region || regionKey(d.region) !== rk) return;
+    if (me && d.id === me.id) return;
+    if (String(d.savedAt) >= before) return;
+    var nk = normalizeClubName(d.name);
+    if (me && nk === normalizeClubName(me.name)) return;
+    if (!latest[nk] || String(latest[nk].savedAt) < String(d.savedAt)) latest[nk] = d;   // ίδιος αγώνας αποθηκευμένος ξανά → μετρά μία φορά
+  });
+  Object.keys(latest).forEach(function(k){
+    var d = latest[k];
+    var e = (d.flatAssignments || []).find(function(a){ return !a.members && seriesKey(a.athleteName) === key; });
+    var c = e && d.cards && d.cards[e.athleteId];
+    if (c && c.y) n += c.y;
+  });
+  return n;
+}
+// 🟨: 0 → 1 → 2 → 0. Με τη 2η κίτρινη (και μαζί με προηγούμενων αγώνων) → ΚΟΚΚΙΝΗ.
+function cycleYellow(id){
+  state.cards = state.cards || {};
+  var c = state.cards[id] = state.cards[id] || {};
+  c.y = ((c.y || 0) + 1) % 3;
+  var total = (c.y || 0) + priorYellows(id);
+  if (c.y > 0 && total >= 2 && statusOf(state.roundAbsent, id) !== "red"){ c.autoRed = true; setStatus(id, "red"); return; }
+  if (total < 2 && c.autoRed){ c.autoRed = false; if (statusOf(state.roundAbsent, id) === "red") { setStatus(id, null); return; } }
+  state.rankings = null; state.teamRankings = null;
   render();
 }
+function setPanRedCarry(on){ state.panRedCarry = !!on; storageSet(PAN_RED_CARRY_KEY, JSON.stringify(state.panRedCarry)); render(); }
+// Ενότητα «Αποκλεισμοί / κάρτες» για το PDF, πριν την υπογραφή του Αλυτάρχη.
+function cardsRowsFor(flat, statusMap, cards){
+  var out = [];
+  (flat || []).slice().sort(function(a,b){ return a.position - b.position; }).forEach(function(a){
+    var st = statusOf(statusMap, a.athleteId), c = (cards || {})[a.athleteId] || {};
+    if (!(st === "red" || st === "aband" || c.y || (st === "absent" && c.note))) return;
+    out.push({ a: a, st: st, y: c.y || 0, note: c.note || "" });
+  });
+  return out;
+}
+function printCardsSection(blocks){
+  var any = blocks.some(function(b){ return b.rows.length; });
+  if (!any) return "";
+  var h = '<div class="blk"><h2>Αποκλεισμοί / κάρτες</h2><table><tr>' + (blocks.length > 1 ? '<th class="c">Αγων.</th>' : '') + '<th class="c">Θέση</th><th>Αθλητής</th><th>Σύλλογος</th><th>Ποινή</th><th>Αιτιολογία</th></tr>';
+  blocks.forEach(function(b){
+    b.rows.forEach(function(x){
+      var pen = [];
+      if (x.y) pen.push('🟨 ' + x.y + (x.y > 1 ? ' κίτρινες' : ' κίτρινη'));
+      if (x.st) pen.push('<b style="color:' + (x.st === "red" ? '#A33' : '#5A6472') + ';">' + (x.st === "red" ? '🟥 ' : '') + statusLabel(x.st) + '</b>');
+      h += '<tr>' + (blocks.length > 1 ? '<td class="c">' + b.label + '</td>' : '') + '<td class="c">' + sectorLabel(x.a.sector) + x.a.position + '</td><td><b>' + esc(x.a.athleteName) + '</b></td><td>' + esc(x.a.clubName) + '</td><td>' + pen.join(' · ') + '</td><td>' + esc(x.note) + '</td></tr>';
+    });
+  });
+  return h + '</table></div>';
+}
+
 
 var PERM_CACHE = {};
 function kPermutations(arr, k){
@@ -718,17 +834,19 @@ function sectorOffsetsOf(caps){
 function individualRows(flat, caps, weights, rankings, excludeTeamOnly, absent){
   absent = absent || {};
   var offs = sectorOffsetsOf(caps);
+  // Απών / κόκκινη / εγκατάλειψη: το αλίευμα δεν μετράει (ούτε στις ισοβαθμίες).
+  function W(id){ return absent[id] ? 0 : parseWeight(weights[id]); }
   var sorted = flat.filter(function(a){ return !(excludeTeamOnly && a.inIndividual === false); }).sort(function(a,b){
-    return ((rankings[a.athleteId]||0) - (rankings[b.athleteId]||0)) || (parseWeight(weights[b.athleteId]) - parseWeight(weights[a.athleteId]));
+    return ((rankings[a.athleteId]||0) - (rankings[b.athleteId]||0)) || (W(b.athleteId) - W(a.athleteId));
   });
   var rows = [];
   sorted.forEach(function(a, idx){
     var prev = sorted[idx-1];
-    var same = idx > 0 && rankings[a.athleteId] === rankings[prev.athleteId] && parseWeight(weights[a.athleteId]) === parseWeight(weights[prev.athleteId]);
+    var same = idx > 0 && rankings[a.athleteId] === rankings[prev.athleteId] && W(a.athleteId) === W(prev.athleteId);
     rows.push(Object.assign({}, a, {
-      score: rankings[a.athleteId], weight: parseWeight(weights[a.athleteId]),
+      score: rankings[a.athleteId], weight: W(a.athleteId),
       localPosition: a.position - offs[a.sector], place: same ? rows[idx-1].place : idx + 1,
-      roundAbsent: !!absent[a.athleteId]
+      roundAbsent: !!absent[a.athleteId], status: statusOf(absent, a.athleteId)
     }));
   });
   // Ισόβαθμοι χωρίς αλίευμα (0 γρ., ίδιος βαθμός ποινής): take the average of
@@ -760,8 +878,8 @@ function teamRows(flat, caps, weights, teamRanks, teams, absent){
   var rows = (teams || []).map(function(t){
     var members = t.memberIds.filter(function(id){ return byId[id]; }).map(function(id){
       var a = byId[id];
-      return { athleteId: id, athleteName: a.athleteName, score: teamRanks[id] || 0, weight: parseWeight(weights[id]),
-        sector: a.sector, localPosition: a.position - offs[a.sector], roundAbsent: !!absent[id] };
+      return { athleteId: id, athleteName: a.athleteName, score: teamRanks[id] || 0, weight: absent[id] ? 0 : parseWeight(weights[id]),
+        sector: a.sector, localPosition: a.position - offs[a.sector], roundAbsent: !!absent[id], status: statusOf(absent, id) };
     });
     var order = members.slice().sort(function(x,y){ return (x.score - y.score) || (y.weight - x.weight); });
     order.forEach(function(m, i){ m.counted = i < COUNTED; });
@@ -860,21 +978,22 @@ function seriesKey(name){ return normalizeClubName(String(name || "")).replace(/
 
 // Συνολική ατομική (άρθρο 35): sum of penalty points of all races → total
 // weight → best single-race placing. An athlete missing from a race (absent
-// or not entered) gets that race's absentee score: worst score + 1.
+// or not entered) gets that race's absentee score: largest sector + 1.
 // Series ranking for a set of saved races (art. 35), split into valid
 // athletes (raced at least `minRaces` of them) and the rest.
 function computeSeries(races, minRaces){
   var athletes = {}, order = [];
   var perRace = races.map(function(d){
     var caps = d.sectorCapacities, w = d.weights || {};
-    var rk = regionalRankRound(d.flatAssignments, caps, w);
-    var rows = individualRows(d.flatAssignments, caps, w, rk, false, {});
-    var scores = rows.map(function(r){ return r.score || 0; });
-    var absentScore = (scores.length ? Math.max.apply(null, scores) : 0) + 1;
+    var st = d.roundAbsent || {};
+    var rk = regionalRankRound(d.flatAssignments, caps, w, st);
+    var rows = individualRows(d.flatAssignments, caps, w, rk, false, st);
+    // Όποιος δεν αγωνίστηκε (απών πριν την κλήρωση ή δεν δηλώθηκε): μεγαλύτερος τομέας +1 (άρθρο 33).
+    var absentScore = (caps && caps.length ? Math.max.apply(null, caps) : 0) + 1;
     var byKey = {};
     rows.forEach(function(r){
       var k = seriesKey(r.athleteName);
-      byKey[k] = { score: r.score, weight: r.weight, place: r.place };
+      byKey[k] = { score: r.score, weight: r.weight, place: r.place, status: r.status, roundAbsent: r.status === "absent" };
       if (!athletes[k]){ athletes[k] = { athleteName: r.athleteName, clubName: r.clubName, sponsor: r.sponsor || "", color: r.color, logo: r.logo }; order.push(k); }
       else if (!athletes[k].sponsor && r.sponsor) athletes[k].sponsor = r.sponsor;
     });
@@ -890,7 +1009,8 @@ function computeSeries(races, minRaces){
     var raced = 0;
     var per = perRace.map(function(pr){
       var x = pr.byKey[k];
-      if (x){ raced++; return x; }
+      // «3 από 4»: κόκκινη / εγκατάλειψη μετράει ως συμμετοχή (η ποινή προήλθε από τη συμμετοχή)· ο απών όχι.
+      if (x){ if (x.status !== "absent") raced++; return x; }
       return { score: pr.absentScore, weight: 0, place: pr.absentPlace, missing: true };
     });
     return {
@@ -1067,7 +1187,7 @@ function exportSeriesToExcel(){
   header.push("ΣΥΝΟΛΟ Β.Π.","ΣΥΝΟΛΙΚΟ ΒΑΡΟΣ","ΑΓΩΝΕΣ","ΕΓΚΥΡΗ ΣΥΜΜΕΤΟΧΗ","ΠΡΟΚΡΙΣΗ");
   var rows = state.seriesRows.concat(state.seriesInvalid || []).map(function(a){
     var r = [a.place, a.athleteName, a.clubName, a.sponsor || ""];
-    a.per.forEach(function(x){ r.push(x.score + (x.missing ? " (ΑΠ)" : ""), x.missing ? "" : x.weight); });
+    a.per.forEach(function(x){ r.push(x.score + (x.missing ? " (ΑΠ)" : x.status ? " (" + statusLabel(x.status) + ")" : ""), x.missing || x.status ? "" : x.weight); });
     r.push(a.totalScore, a.totalWeight, a.raced + "/" + state.seriesRaces.length, a.valid ? "ΝΑΙ" : "ΜΗ ΕΓΚΥΡΟΣ", a.qualifies ? (state.seriesQuotaFinal ? "ΠΡΟΚΡΙΝΕΤΑΙ" : "ΠΡΟΚΡΙΝΕΤΑΙ (ΠΡΟΣΩΡΙΝΑ)") : "");
     return r;
   });
@@ -1098,7 +1218,7 @@ function exportChampionshipToExcel(){
     header.push("ΣΥΝΟΛΟ Β.Π.","ΣΥΝΟΛΙΚΟ ΒΑΡΟΣ");
     rows = state.champInd.map(function(a){
       var r = [a.place, a.athleteName, a.clubName, a.sponsor || ""];
-      a.per.forEach(function(x){ r.push(x ? x.score + (x.roundAbsent ? " (ΑΠ)" : "") : "", x ? x.weight : ""); });
+      a.per.forEach(function(x){ r.push(x ? x.score + (x.status ? " (" + statusLabel(x.status) + ")" : "") : "", x ? (x.status ? "" : x.weight) : ""); });
       r.push(a.totalScore, a.totalWeight);
       return r;
     });
@@ -1307,10 +1427,11 @@ function buildRacePrint(){
     h += '<div class="blk"><h3>Τομέας '+sectorLabel(sIdx)+(tech?' · Τεχνητός'+(isPan?' ('+techWhat+')':''):'')+'</h3><table><tr><th class="c">Θέση</th><th>Αθλητής</th><th>Σύλλογος</th>' +
       (hasW ? '<th class="n">Βάρος</th><th class="c">Β.Π.</th>' + (isPan ? '<th class="c">Β.Π. Ομ.</th>' : '') : '') + '</tr>';
     rows.forEach(function(a){
-      var abs = state.roundAbsent && state.roundAbsent[a.athleteId];
-      h += '<tr><td class="c">'+sectorLabel(sIdx)+a.position+'</td>'+athleteTd(a.athleteName, a.sponsor, a.members)+'<td>'+(a.members ? a.members.map(function(m){ return esc(m.clubName); }).join('<br>') : esc(a.clubName))+'</td>';
+      var abs = statusOf(state.roundAbsent, a.athleteId);
+      var yC = (cardOf(a.athleteId).y || 0) + priorYellows(a.athleteId);
+      h += '<tr><td class="c">'+sectorLabel(sIdx)+a.position+(yC ? ' <span title="κίτρινη">🟨'+(yC>1?yC:'')+'</span>' : '')+'</td>'+athleteTd(a.athleteName, a.sponsor, a.members)+'<td>'+(a.members ? a.members.map(function(m){ return esc(m.clubName); }).join('<br>') : esc(a.clubName))+'</td>';
       if (hasW){
-        h += '<td class="n">'+(abs ? 'ΑΠΩΝ' : (memberWeightText(a) ? '<span style="font-size:7.5pt;color:#8A93A0;">'+memberWeightText(a)+' =</span> ' : '')+parseWeight(state.weights[a.athleteId])+' γρ.')+'</td>';
+        h += '<td class="n">'+(abs ? '<b style="color:'+(abs==="red"?'#A33':'#5A6472')+';">'+statusLabel(abs)+'</b>' : (memberWeightText(a) ? '<span style="font-size:7.5pt;color:#8A93A0;">'+memberWeightText(a)+' =</span> ' : '')+parseWeight(state.weights[a.athleteId])+' γρ.')+'</td>';
         h += '<td class="c">'+(a.inIndividual === false ? '—' : (state.rankings[a.athleteId] || ''))+'</td>';
         if (isPan) h += '<td class="c">'+(a.inTeam && state.teamRankings ? (state.teamRankings[a.athleteId] || '') : '—')+'</td>';
       }
@@ -1323,10 +1444,10 @@ function buildRacePrint(){
     h += '<div class="pb"></div>' + printHeader(title, sub) + printSponsors() + '<h2>'+(isPan ? 'Ατομική κατάταξη' : 'Τελική κατάταξη')+'</h2>';
     h += '<table><tr><th class="c">#</th><th>Αθλητής</th><th>Σύλλογος</th><th class="c">Θέση</th><th class="c">Κατ.Τομ.</th><th class="n">Βάρος</th></tr>';
     list.forEach(function(a){
-      var abs = a.roundAbsent || a.sector === null;
+      var abs = a.status || (a.sector === null ? "absent" : null);
       h += '<tr class="'+(a.place<=3?'top':'')+'">'+placeCell(a.place)+athleteTd(a.athleteName, a.sponsor, a.members)+'<td>'+(a.members ? a.members.map(function(m){ return esc(m.clubName); }).join('<br>') : esc(a.clubName))+'</td>' +
         '<td class="c">'+(a.sector === null ? '—' : sectorLabel(a.sector)+a.position)+'</td><td class="c">'+a.score+'</td>' +
-        '<td class="n">'+(abs ? 'ΑΠΩΝ' : a.weight+' γρ.')+'</td></tr>';
+        '<td class="n">'+(abs ? '<b style="color:'+(abs==="red"?'#A33':'#5A6472')+';">'+statusLabel(abs)+'</b>' : a.weight+' γρ.')+'</td></tr>';
     });
     h += '</table>';
     if (isPan && state.teams && state.teams.length){
@@ -1340,6 +1461,7 @@ function buildRacePrint(){
       h += '</table></div>';
     }
   }
+  h += printCardsSection([{ label: "", rows: cardsRowsFor(state.flatAssignments, state.roundAbsent, state.cards) }]);
   return { html: h + printSignature() + printFooter(), file: "Agonas_" + title };
 }
 
@@ -1352,7 +1474,7 @@ function buildChampionshipPrint(){
   h += '<th class="c">Σύνολο</th><th class="n">Βάρος</th></tr>';
   state.champInd.forEach(function(a){
     h += '<tr class="'+(a.place<=3?'top':'')+'">'+placeCell(a.place)+athleteTd(a.athleteName, a.sponsor)+'<td>'+esc(a.clubName)+'</td>';
-    a.per.forEach(function(x){ h += '<td class="c">'+(x ? x.score + '<br><span style="font-size:7.5pt;color:#8A93A0;">'+(x.roundAbsent?'απ':x.weight+'γ')+'</span>' : '—')+'</td>'; });
+    a.per.forEach(function(x){ h += '<td class="c">'+(x ? x.score + '<br><span style="font-size:7.5pt;color:'+(x.status==="red"?'#A33':'#8A93A0')+';">'+(x.status?STATUS_SHORT[x.status]:x.weight+'γ')+'</span>' : '—')+'</td>'; });
     h += '<td class="c"><b>'+a.totalScore+'</b></td><td class="n">'+a.totalWeight+' γρ.</td></tr>';
   });
   h += '</table>';
@@ -1365,6 +1487,7 @@ function buildChampionshipPrint(){
     h += '<td class="c"><b>'+t.totalPlaces+'</b></td><td class="c">'+t.totalPenalty+'</td><td class="n">'+t.totalWeight+' γρ.</td></tr>';
   });
   h += '</table></div>';
+  h += printCardsSection(state.rounds.map(function(r, i){ return { label: (i+1) + "η", rows: cardsRowsFor(r.flatAssignments, r.roundAbsent, r.cards) }; }));
   return { html: h + printSignature() + printFooter(), file: "Protathlima_" + title };
 }
 
@@ -1395,7 +1518,7 @@ function buildSeriesPrint(){
   h += '<th class="c">Σύνολο</th><th class="n">Βάρος</th></tr>';
   state.seriesRows.forEach(function(a){
     h += '<tr class="'+(a.place<=3?'top':'')+'">'+placeCell(a.place)+athleteTd(a.athleteName, a.sponsor)+'<td>'+esc(a.clubName || '')+'</td>';
-    a.per.forEach(function(x){ h += '<td class="c">'+x.score+'<br><span style="font-size:7.5pt;color:#8A93A0;">'+(x.missing?'απ':x.weight+'γ')+'</span></td>'; });
+    a.per.forEach(function(x){ h += '<td class="c">'+x.score+'<br><span style="font-size:7.5pt;color:#8A93A0;">'+(x.missing?'απ':x.status?STATUS_SHORT[x.status]:x.weight+'γ')+'</span></td>'; });
     h += '<td class="c"><b>'+a.totalScore+'</b>'+(a.qualifies?'<br><span style="font-size:7pt;color:'+(state.seriesQuotaFinal?Q_GREEN:Q_ORANGE)+';font-weight:bold;">ΤΕΛΙΚΟΣ</span>':'')+(a.valid?'':'<br><span style="font-size:7pt;color:#A33;font-weight:bold;">ΜΗ ΕΓΚΥΡΟΣ '+a.raced+'/'+n+'</span>')+'</td><td class="n">'+a.totalWeight+' γρ.</td></tr>';
   });
   h += '</table>';
@@ -1405,7 +1528,7 @@ function buildSeriesPrint(){
     h += '<th class="c">Σύνολο</th><th class="n">Βάρος</th></tr>';
     state.seriesInvalid.forEach(function(a){
       h += '<tr style="color:#5A6472;"><td class="c">'+a.place+'</td>'+athleteTd(a.athleteName, a.sponsor)+'<td>'+esc(a.clubName || '')+'</td><td class="c">'+a.raced+'/'+n+'</td>';
-      a.per.forEach(function(x){ h += '<td class="c">'+x.score+'<br><span style="font-size:7.5pt;color:#8A93A0;">'+(x.missing?'απ':x.weight+'γ')+'</span></td>'; });
+      a.per.forEach(function(x){ h += '<td class="c">'+x.score+'<br><span style="font-size:7.5pt;color:#8A93A0;">'+(x.missing?'απ':x.status?STATUS_SHORT[x.status]:x.weight+'γ')+'</span></td>'; });
       h += '<td class="c">'+a.totalScore+'</td><td class="n">'+a.totalWeight+' γρ.</td></tr>';
     });
     h += '</table>';
@@ -1481,6 +1604,16 @@ function importRaceCsvText(text, fileName){
   var H = rows[0].map(function(h){ return normalizeClubName(h); });
   function col(name){ return H.indexOf(normalizeClubName(name)); }
   var cPos = col("ΘΕΣΗ"), cName = col("ΟΝΟΜΑ ΑΘΛΗΤΗ"), cClub = col("ΣΥΛΛΟΓΟΣ"), cSp = col("ΧΟΡΗΓΟΣ"), cW = col("ΒΑΡΟΣ");
+  var cSt = col("ΚΑΤΑΣΤΑΣΗ"), cY = col("ΚΙΤΡΙΝΕΣ"), cNote = col("ΑΙΤΙΟΛΟΓΙΑ");
+  var statusIn = {}, cardsIn = {};
+  function statusFromText(t){
+    var k = normalizeClubName(String(t || "").replace(/\./g, ""));
+    if (!k) return null;
+    if (k.indexOf("κοκκιν") === 0 || k.indexOf("αποκλ") === 0) return "red";
+    if (k.indexOf("εγκατ") === 0) return "aband";
+    if (k.indexOf("απων") === 0) return "absent";
+    return null;
+  }
   if (cPos < 0 || cName < 0 || cClub < 0) throw new Error("δεν είναι Φύλλο Αγώνα της εφαρμογής (λείπουν οι στήλες ΘΕΣΗ / ΟΝΟΜΑ ΑΘΛΗΤΗ / ΣΥΛΛΟΓΟΣ)");
   var flat = [], weights = {}, seenPos = {}, maxSector = -1, clubCache = {};
   rows.slice(1).forEach(function(r, idx){
@@ -1509,6 +1642,11 @@ function importRaceCsvText(text, fileName){
     flat.push(entry);
     var w = cW >= 0 ? String(r[cW] || "").trim().replace(/\s*(γρ\.?|gr)$/i, "").replace(",", ".") : "";
     weights[entry.athleteId] = /^\d+(\.\d+)?$/.test(w) ? w : "";
+    var stI = statusFromText(cSt >= 0 ? r[cSt] : "") || statusFromText(cW >= 0 ? r[cW] : "");
+    if (stI) statusIn[entry.athleteId] = stI;
+    var yI = cY >= 0 ? parseInt(String(r[cY] || "").replace(/[^0-9]/g, ""), 10) : 0;
+    var nI = cNote >= 0 ? String(r[cNote] || "").trim() : "";
+    if (yI || nI) cardsIn[entry.athleteId] = { y: yI || 0, note: nI };
   });
   if (!flat.length) throw new Error("δεν βρέθηκαν αθλητές");
   var caps = [];
@@ -1527,8 +1665,8 @@ function importRaceCsvText(text, fileName){
     id: uid(), name: name, savedAt: savedAt, mode: state.mode, teams: [], imported: true,
     numSectors: caps.length, flatAssignments: flat.sort(function(a,b){ return a.position - b.position; }),
     sectorCapacities: caps, weights: weights,
-    rankings: hasWeights ? regionalRankRound(flat, caps, weights) : null, teamRankings: null,
-    roundAbsent: {}, rounds: null, currentRound: 0, absentAthletes: []
+    rankings: hasWeights ? regionalRankRound(flat, caps, weights, statusIn) : null, teamRankings: null,
+    roundAbsent: statusIn, cards: cardsIn, rounds: null, currentRound: 0, absentAthletes: []
   };
   state.savedDraws.push(draw);
   storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
@@ -2125,7 +2263,7 @@ function importManualDraw(){
   state.teams = state.mode === "panhellenic" ? buildTeams(flat) : [];
   if (state.mode === "panhellenic") tagPanFlags(flat, state.teams);
   state.rounds = null;
-  state.roundAbsent = {};
+  state.roundAbsent = {}; state.cards = {};
   state.teamRankings = null;
   state.teamStandings = [];
   state.stage = "result";
@@ -2494,7 +2632,7 @@ function runPanhellenicDraw(){
       });
       running += members.length;
     });
-    return { flatAssignments: shuffle(flat), sectorCapacities: caps, weights: {}, rankings: null, teamRankings: null, roundAbsent: {} };
+    return { flatAssignments: shuffle(flat), sectorCapacities: caps, weights: {}, rankings: null, teamRankings: null, roundAbsent: {}, cards: {} };
   });
   var teams = buildTeams(rounds[0].flatAssignments);
   rounds.forEach(function(r){ tagPanFlags(r.flatAssignments, teams); });
@@ -2511,6 +2649,8 @@ function startReveal(flat, capacities){
   state.weights = isChampionship() ? state.rounds[state.currentRound].weights : {};
   state.memberWeights = {};
   state.roundAbsent = isChampionship() ? state.rounds[state.currentRound].roundAbsent : {};
+  state.cards = isChampionship() ? (state.rounds[state.currentRound].cards = state.rounds[state.currentRound].cards || {}) : {};
+  state.loadedDrawId = null;
   state.rankings = null;
   state.teams = state.mode === "panhellenic" ? buildTeams(flat) : [];
   if (state.mode === "panhellenic") tagPanFlags(flat, state.teams);
@@ -2532,7 +2672,7 @@ function startReveal(flat, capacities){
 
 function newDrawSameClubs(){
   state.rounds = null;
-  state.roundAbsent = {};
+  state.roundAbsent = {}; state.cards = {};
   state.stage = "setup";
   state.flatAssignments = [];
   state.revealedCount = 0;
@@ -2544,7 +2684,7 @@ function resetAll(){
   confirmOrRun("reset-all", function(){
     state.clubs.forEach(function(c){ c.athletes = []; });
     state.rounds = null;
-    state.roundAbsent = {};
+    state.roundAbsent = {}; state.cards = {};
     state.flatAssignments = [];
     state.revealedCount = 0;
     state.weights = {};
@@ -2563,13 +2703,15 @@ function computeRankings(){
     render();
     return;
   }
-  state.rankings = regionalRankRound(state.flatAssignments, state.sectorCapacities, state.weights);
+  state.rankings = regionalRankRound(state.flatAssignments, state.sectorCapacities, state.weights, statusModeOn() ? state.roundAbsent : {});
   render();
 }
 
 // Περιφερειακά / Φιλικά: sector ranks for one race, with the technical-sector
 // borrowing of Παράδειγμα 2.
-function regionalRankRound(flat, caps, weights){
+function regionalRankRound(flat, caps, weights, absent){
+  absent = absent || {};
+  function present(a){ return !absent[a.athleteId]; }
   var numSectors = caps.length;
   var result = {};
   var isTechnical = caps.length > 0 && caps[caps.length-1] !== caps[0] && caps[caps.length-1] > 0;
@@ -2577,7 +2719,7 @@ function regionalRankRound(flat, caps, weights){
   var diff = isTechnical ? caps[0] - caps[lastIdx] : 0;
 
   function toWeighted(sectorIdx){
-    return flat.filter(function(a){ return a.sector === sectorIdx; })
+    return flat.filter(function(a){ return a.sector === sectorIdx && present(a); })
       .map(function(a){ return { athleteId: a.athleteId, weight: parseWeight(weights[a.athleteId]) }; });
   }
 
@@ -2596,14 +2738,18 @@ function regionalRankRound(flat, caps, weights){
     // second-to-last sector (bordering the technical sector) — fixed by the
     // draw itself, not by weight.
     var borrowed = secondToLastAthletes
-      .filter(function(a){ return (a.position - sectorOffsets[secondToLastIdx]) > (secondToLastCapacity - diff); })
+      .filter(function(a){ return (a.position - sectorOffsets[secondToLastIdx]) > (secondToLastCapacity - diff) && present(a); })
       .map(function(a){ return { athleteId: a.athleteId, weight: parseWeight(weights[a.athleteId]) }; });
     var technicalReal = toWeighted(lastIdx);
     var combined = technicalReal.concat(borrowed.map(function(b){ return { athleteId: "__borrowed__"+b.athleteId, weight: b.weight }; }));
     var combinedRanks = rankGroupByWeight(combined);
     technicalReal.forEach(function(a){ result[a.athleteId] = combinedRanks[a.athleteId]; });
   }
-
+  // Άρθρα 33 / 68: όποιος δεν μετρά παίρνει μέγεθος τομέα +1 (τεχνητός: κανονικός τομέας +1).
+  flat.forEach(function(a){
+    if (present(a)) return;
+    result[a.athleteId] = (isTechnical && a.sector === lastIdx ? caps[0] : caps[a.sector]) + 1;
+  });
   return result;
 }
 
@@ -2624,9 +2770,8 @@ function computeFinalStandings(){
   // Athletes marked "Απών" never entered the draw, so they carry no
   // sector/position — appended here, all sharing one score: the worst
   // real score in the competition, plus one.
-  var allScores = individualPool.map(function(a){ return rankings[a.athleteId] || 0; });
-  var maxScore = allScores.length > 0 ? Math.max.apply(null, allScores) : 0;
-  var absentScore = maxScore + 1;
+  // Άρθρο 33: μέγιστος βαθμός ποινής +1 — εδώ, χωρίς τομέα, το μέγεθος του μεγαλύτερου τομέα +1.
+  var absentScore = (state.sectorCapacities.length ? Math.max.apply(null, state.sectorCapacities) : 0) + 1;
   var absentPlace = withPlace.length + 1;
   // Πανελλήνιο: athletes marked absent before the draw are simply not
   // taking part; absences on the day are marked per round instead.
@@ -2689,8 +2834,11 @@ function exportToExcel(){
   if (isPan) header.push("ΣΥΜΜΕΤΟΧΗ", "Β. ΠΟΙΝΗΣ ΟΜΑΔΙΚΟΥ");
   var hasPairs = rows.some(function(a){ return a.members; });
   if (hasPairs) header.push("ΒΑΡΟΣ ΑΝΑ ΑΘΛΗΤΗ");
+  var withStatus = statusModeOn();
+  if (withStatus) header.push("ΚΑΤΑΣΤΑΣΗ", "ΚΙΤΡΙΝΕΣ", "ΑΙΤΙΟΛΟΓΙΑ");
   var csvRows = rows.map(function(a, idx){
-    var weight = state.roundAbsent && state.roundAbsent[a.athleteId] ? "ΑΠΩΝ" : parseWeight(state.weights[a.athleteId]);
+    var stE = statusOf(state.roundAbsent, a.athleteId);
+    var weight = stE ? statusLabel(stE) : parseWeight(state.weights[a.athleteId]);
     var score = state.rankings ? (state.rankings[a.athleteId] != null ? state.rankings[a.athleteId] : "") : "";
     var row = [
       idx+1,
@@ -2706,6 +2854,7 @@ function exportToExcel(){
       row.push(PARTICIPATION[a.participation || "both"].full, a.inTeam && state.teamRankings ? (state.teamRankings[a.athleteId] || "") : "");
     }
     if (hasPairs) row.push(memberWeightText(a));
+    if (withStatus){ var cE = cardOf(a.athleteId); row.push(stE ? statusLabel(stE) : "", cE.y || "", cE.note || ""); }
     return row;
   });
   var today = new Date().toISOString().slice(0,10);
@@ -2717,7 +2866,7 @@ function exportFinalRankingToExcel(){
   var header = ["ΤΕΛΙΚΗ ΘΕΣΗ","ΟΝΟΜΑ ΑΘΛΗΤΗ","ΣΥΛΛΟΓΟΣ","ΧΟΡΗΓΟΣ","ΤΟΜΕΑΣ","ΘΕΣΗ ΣΤΟΝ ΤΟΜΕΑ","ΒΑΡΟΣ","Β. ΠΟΙΝΗΣ"];
   var csvRows = state.finalStandings.map(function(a){
     var isAbsent = a.sector === null;
-    return [a.place, a.athleteName, a.clubName, a.sponsor || "", isAbsent ? "ΑΠΩΝ" : sectorLabel(a.sector), isAbsent ? "" : a.localPosition, isAbsent ? "" : (a.weight || ""), a.score];
+    return [a.place, a.athleteName, a.clubName, a.sponsor || "", isAbsent ? "ΑΠΩΝ" : sectorLabel(a.sector), isAbsent ? "" : a.localPosition, isAbsent ? "" : (a.status ? statusLabel(a.status) : (a.weight || "")), a.score];
   });
   var title = (state.saveNameInput || "").trim();
   var today = new Date().toISOString().slice(0,10);
@@ -2751,12 +2900,13 @@ function saveCurrentDraw(){
     numSectors: state.numSectors, flatAssignments: state.flatAssignments,
     sectorCapacities: state.sectorCapacities, weights: state.weights, rankings: state.rankings, teamRankings: state.teamRankings,
     memberWeights: state.memberWeights || {}, pairWeigh: state.drawPairWeigh || "pair",
-    roundAbsent: state.roundAbsent || {}, rounds: isChampionship() ? state.rounds : null, currentRound: state.currentRound,
+    roundAbsent: state.roundAbsent || {}, cards: state.cards || {}, rounds: isChampionship() ? state.rounds : null, currentRound: state.currentRound,
     absentAthletes: state.mode === "panhellenic" ? [] : [].concat.apply([], modeClubs().map(function(c){
       return c.athletes.filter(function(a){ return a.absent; }).map(function(a){ return { name: a.name, clubName: c.name }; });
     }))
   };
   state.savedDraws.push(draw);
+  state.loadedDrawId = draw.id;
   storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
   render();
 }
@@ -2778,6 +2928,8 @@ function loadSavedDraw(id){
   if (drawModeOf(draw) === "panhellenic" && draw.flatAssignments.length && draw.flatAssignments[0].inIndividual === undefined) tagPanFlags(draw.flatAssignments, state.teams);
   state.teamStandings = [];
   state.roundAbsent = draw.roundAbsent || {};
+  state.cards = draw.cards || {};
+  state.loadedDrawId = draw.id;
   state.rounds = draw.rounds && draw.rounds.length ? draw.rounds : null;
   if (state.rounds) applyRound(Math.min(draw.currentRound || 0, state.rounds.length - 1));
   state.revealedCount = state.flatAssignments.length;
@@ -2982,6 +3134,7 @@ function renderSetup(){
   html += '<label style="display:block; font-size:12.5px; color:#5A6472; margin-bottom:4px;">Αριθμός τομέων</label>';
   html += '<input id="numSectorsInput" type="text" inputmode="numeric" class="input" style="max-width:100px;" value="'+esc(state.numSectors)+'" onblur="commitNumSectorsAndRender()" />';
   if (isPan) html += '<div style="font-size:11.5px; color:#8A93A0; margin-top:4px;">Αρχικά 5 (μία πεντάδα ανά ομάδα) — άλλαξέ το αν ορίζει διαφορετικά η προκήρυξη.</div>';
+  if (isPan) html += '<label style="display:flex; gap:8px; align-items:flex-start; margin-top:10px; font-size:12.5px; color:'+NAVY+'; cursor:pointer;"><input type="checkbox" '+(state.panRedCarry?'checked':'')+' onchange="setPanRedCarry(this.checked)" style="width:17px;height:17px;margin-top:1px;" /><span>🟥 Κόκκινη σε αγωνιστική = αποκλεισμός και από τις επόμενες<br><span style="font-size:11px; color:#8A93A0;">Κλειστό: συνεχίζει κανονικά στην επόμενη αγωνιστική (μέχρι απόφαση Δ.Σ.)</span></span></label>';
   if (isPan){
     var pc = panCounts();
     var NS = Math.max(2, parseInt(state.numSectors, 10) || 5);
@@ -3247,13 +3400,13 @@ function renderFinalRanking(){
     html += '<div style="flex:1; min-width:0;"><div style="font-size:14px; color:'+INK+'; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(a.athleteName)+'</div>';
     }
     var sectorLine = a.roundAbsent
-      ? '<span style="color:#A33; font-weight:bold;">ΑΠΩΝ</span> · Τομέας '+sectorLabel(a.sector)
+      ? '<span style="color:#A33; font-weight:bold;">'+statusLabel(a.status || "absent")+'</span> · Τομέας '+sectorLabel(a.sector)
       : a.sector === null
       ? '<span style="color:#A33; font-weight:bold;">ΑΠΩΝ</span>'
       : 'Τομέας '+sectorLabel(a.sector)+' / Θέση '+a.localPosition;
     html += '<div style="font-size:11.5px; color:#8A93A0;">'+(a.members ? '👥 ' : esc(a.clubName)+' · ')+sectorLine+(a.sponsor?' <span style="color:#B8862F; font-style:italic;">· '+esc(a.sponsor)+'</span>':'')+'</div></div>';
     html += '<div style="text-align:right; flex-shrink:0;"><div style="font-size:13px; font-weight:bold; color:'+NAVY+';">'+a.score+' Β/Π</div>';
-    html += '<div style="font-size:11px; color:#8A93A0;">'+(a.sector===null?'—':a.weight+' γρ.')+'</div></div>';
+    html += '<div style="font-size:11px; color:#8A93A0;">'+(a.sector===null?'—':a.status?statusLabel(a.status):a.weight+' γρ.')+'</div></div>';
     html += '</div>';
   });
   html += '</div>';
@@ -3294,7 +3447,7 @@ function renderTeamRanking(){
       if (!m.counted) html += '<span style="font-size:10px; color:#8A93A0; white-space:nowrap;">δεν μετρά</span>';
       html += '<span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(m.athleteName)+'</span>';
       html += m.roundAbsent
-        ? '<span style="color:#A33; font-size:11px; font-weight:bold; white-space:nowrap;">ΑΠΩΝ · Τομ. '+sectorLabel(m.sector)+'</span>'
+        ? '<span style="color:#A33; font-size:11px; font-weight:bold; white-space:nowrap;">'+statusLabel(m.status || "absent")+' · Τομ. '+sectorLabel(m.sector)+'</span>'
         : m.sector === null
         ? '<span style="color:#A33; font-size:11px; font-weight:bold; white-space:nowrap;">ΑΠΩΝ</span>'
         : '<span style="color:#8A93A0; font-size:11px; white-space:nowrap;">Τομ. '+sectorLabel(m.sector)+' / '+m.localPosition+'</span>';
@@ -3324,10 +3477,10 @@ function athleteCell(r){
 }
 function raceCell(label, x){
   if (!x) return '<div style="text-align:center; min-width:40px;"><div style="font-size:9.5px; color:#8A93A0;">'+label+'</div><div style="font-size:12.5px; color:#C7C0AC;">—</div></div>';
-  var abs = x.missing || x.roundAbsent;
+  var abs = x.missing || x.roundAbsent || x.status;
   return '<div style="text-align:center; min-width:40px;"><div style="font-size:9.5px; color:#8A93A0;">'+label+'</div>' +
     '<div style="font-size:12.5px; font-weight:bold; color:'+(abs?"#A33":NAVY)+';">'+x.score+'</div>' +
-    '<div style="font-size:9.5px; color:'+(abs?"#A33":"#8A93A0")+';">'+(abs?"απ":x.weight+'γ')+'</div></div>';
+    '<div style="font-size:9.5px; color:'+(abs?"#A33":"#8A93A0")+';">'+(x.status ? STATUS_SHORT[x.status] : abs?"απ":x.weight+'γ')+'</div></div>';
 }
 
 function renderQuota(){
@@ -3523,7 +3676,7 @@ function renderDraw(){
           });
           html += '</span><span title="Ζευγάρι" style="flex-shrink:0; font-size:10px; color:#B8862F; font-weight:bold;">👥</span>';
         } else {
-        html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'+(isChampionship() && state.roundAbsent && state.roundAbsent[slot.athleteId] ? 'text-decoration:line-through; opacity:0.55;' : '')+'">'+esc(slot.athleteName)+'</span><span style="color:#8A93A0; font-size:11px; white-space:nowrap;">· '+esc(slot.clubName)+'</span>';
+        html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'+(statusModeOn() && statusOf(state.roundAbsent, slot.athleteId) ? 'text-decoration:line-through; opacity:0.55;' : '')+'">'+esc(slot.athleteName)+'</span><span style="color:#8A93A0; font-size:11px; white-space:nowrap;">· '+esc(slot.clubName)+'</span>';
         }
         if (state.mode === "panhellenic" && slot.participation && slot.participation !== "both"){
           html += '<span class="part-tag '+slot.participation+'" style="cursor:default;" title="'+PARTICIPATION[slot.participation].full+'">'+PARTICIPATION[slot.participation].label+'</span>';
@@ -3540,11 +3693,17 @@ function renderDraw(){
         } else if (state.rankings && state.rankings[slot.athleteId]){
           html += '<span style="background:'+GOLD+';color:'+NAVY+';border-radius:10px;padding:1px 7px;font-size:11px;font-weight:bold;margin-right:2px;">'+state.rankings[slot.athleteId]+'ος</span>';
         }
-        var isAbs = isChampionship() && state.roundAbsent && state.roundAbsent[slot.athleteId];
-        if (isAbs){
+        var stS = statusModeOn() ? statusOf(state.roundAbsent, slot.athleteId) : null;
+        if (statusModeOn() && !slot.members){
+          // Κατάσταση: κανονικά → ΑΠΩΝ → ΚΟΚΚΙΝΗ → ΕΓΚΑΤ. · και μετρητής κίτρινων.
+          var cdS = cardOf(slot.athleteId), yAll = (cdS.y || 0) + priorYellows(slot.athleteId);
+          var stCol = stS === "red" ? "#A33" : stS === "aband" ? "#B5652E" : stS === "absent" ? "#5A6472" : "#B7BFC9";
+          html += '<button onclick="cycleStatus('+jsStr(slot.athleteId)+')" title="Κατάσταση: κανονικά → ΑΠΩΝ → ΚΟΚΚΙΝΗ → ΕΓΚΑΤ." style="border:1px solid '+(stS?stCol:"#D8D2C0")+'; background:'+(stS?stCol:"#fff")+'; color:'+(stS?"#fff":stCol)+'; border-radius:8px; padding:2px 5px; font-size:10.5px; font-weight:bold; cursor:pointer; font-family:inherit; min-width:26px;">'+(stS ? STATUS_BTN[stS] : "●")+'</button>';
+          html += '<button onclick="cycleYellow('+jsStr(slot.athleteId)+')" title="Κίτρινη κάρτα (η 2η = ΚΟΚΚΙΝΗ)" style="border:1px solid '+(yAll?"#C9A227":"#D8D2C0")+'; background:'+(cdS.y?"#F4D03F":"#fff")+'; border-radius:4px; padding:1px 4px; font-size:11px; cursor:pointer; min-width:24px;">🟨'+(yAll ? '<b style="font-size:10px;">'+yAll+'</b>' : '')+'</button>';
+        }
+        if (stS && !statusModeOn()){
           html += '<button class="abs-btn on" onclick="toggleRoundAbsent('+jsStr(slot.athleteId)+')" title="Αναίρεση απουσίας">ΑΠΩΝ ✕</button></div>';
         } else {
-          if (isChampionship()) html += '<button class="abs-btn" onclick="toggleRoundAbsent('+jsStr(slot.athleteId)+')" title="Απών σε αυτή την αγωνιστική">Απ</button>';
           if (slot.members && state.drawPairWeigh === "each"){
             var mw = (state.memberWeights && state.memberWeights[slot.athleteId]) || ["", ""];
             [0,1].forEach(function(k){
@@ -3553,11 +3712,21 @@ function renderDraw(){
             });
             html += '<span style="font-size:11px; color:'+NAVY+'; font-weight:bold; min-width:34px; text-align:right;">='+parseWeight(state.weights[slot.athleteId])+'</span>';
           } else
-          html += '<input type="text" inputmode="decimal" placeholder="0" value="'+esc(state.weights[slot.athleteId] || "")+'" style="width:62px;border:1px solid #CFC7B0;border-radius:4px;padding:3px 5px;font-size:12.5px;text-align:right;background:#fff;color:'+INK+';" onblur="state.weights['+jsStr(slot.athleteId)+']=this.value.trim(); state.rankings=null; state.teamRankings=null; render();" />';
+          html += '<input type="text" inputmode="decimal" placeholder="0" value="'+esc(state.weights[slot.athleteId] || "")+'" title="'+(stS ? 'Το ζύγισμα κρατιέται αλλά δεν μετράει ('+statusLabel(stS)+')' : '')+'" style="width:62px;border:1px solid #CFC7B0;border-radius:4px;padding:3px 5px;font-size:12.5px;text-align:right;background:'+(stS?"#F3F0E8":"#fff")+';color:'+(stS?"#A8A08A":INK)+';'+(stS?'text-decoration:line-through;':'')+'" onblur="state.weights['+jsStr(slot.athleteId)+']=this.value.trim(); state.rankings=null; state.teamRankings=null; render();" />';
           html += '<span style="font-size:11px; color:#8A93A0;">γρ.</span></div>';
         }
       }
       html += '</div>';
+      if (filled && state.stage === "result" && statusModeOn() && !slot.members){
+        var cdN = cardOf(slot.athleteId), pyN = priorYellows(slot.athleteId);
+        if (stS || cdN.y || pyN){
+          html += '<div style="margin:3px 0 0 40px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">';
+          if (stS) html += '<span style="font-size:10.5px; font-weight:bold; color:'+(stS==="red"?"#A33":stS==="aband"?"#B5652E":"#5A6472")+';">'+statusLabel(stS)+' · δεν μετρά το ζύγισμα</span>';
+          if (pyN) html += '<span style="font-size:10.5px; color:#9A6F1E;">🟨 '+pyN+' από '+(isChampionship()?'προηγούμενη αγωνιστική':'προηγούμενο αγώνα')+'</span>';
+          if (stS || cdN.y) html += '<input type="text" class="input" style="flex:1; min-width:160px; font-size:11.5px; padding:4px 6px;" placeholder="Αιτιολογία (π.χ. Άρθρο 67 – ακατάλληλα αγκίστρια, 11:20)" value="'+esc(cdN.note || "")+'" onblur="setCardNote('+jsStr(slot.athleteId)+', this.value)" />';
+          html += '</div>';
+        }
+      }
       if (filled && slot.sponsor){
         html += '<div style="margin-left:40px; margin-top:2px; font-size:10.5px; color:#B8862F; font-style:italic;">'+(slot.members ? 'Χορηγοί: ' : 'Χορηγός: ')+esc(slot.sponsor)+'</div>';
       }
@@ -3626,7 +3795,7 @@ function renderDraw(){
 /* ---------- boot ---------- */
 (function boot(){
   initDb().then(function(){
-    return Promise.all([storageGet(LIBRARY_KEY), storageGet(ROSTER_KEY), storageGet(SAVED_DRAWS_KEY), storageGet(MODE_KEY), storageGet(QUOTA_KEY), storageGet(RACE_INFO_KEY), storageGet(PAIRS_KEY), storageGet(REMOVED_DEFAULTS_KEY), storageGet(REGION_SEL_KEY), storageGet(REGION_ORDER_KEY), storageGet(ATHLETE_MEMO_KEY)]);
+    return Promise.all([storageGet(LIBRARY_KEY), storageGet(ROSTER_KEY), storageGet(SAVED_DRAWS_KEY), storageGet(MODE_KEY), storageGet(QUOTA_KEY), storageGet(RACE_INFO_KEY), storageGet(PAIRS_KEY), storageGet(REMOVED_DEFAULTS_KEY), storageGet(REGION_SEL_KEY), storageGet(REGION_ORDER_KEY), storageGet(ATHLETE_MEMO_KEY), storageGet(PAN_RED_CARRY_KEY)]);
   }).then(function(results){
     var libVal = results[0], rosterVal = results[1], savedVal = results[2];
     if (libVal){ try { state.library = JSON.parse(libVal); } catch(e){} }
@@ -3638,6 +3807,7 @@ function renderDraw(){
     if (results[5]){ try { var ri = JSON.parse(results[5]); if (ri && typeof ri === "object") state.raceInfo = Object.assign(state.raceInfo, ri); } catch(e){} }
     if (results[4]){ try { var qv = JSON.parse(results[4]); if (qv && typeof qv === "object") state.quota = Object.assign(state.quota, qv); } catch(e){} }
     if (results[7]){ try { var rd = JSON.parse(results[7]); if (Array.isArray(rd)) state.removedDefaults = rd; } catch(e){} }
+    if (results[11]){ try { state.panRedCarry = JSON.parse(results[11]) === true; } catch(e){} }
     if (results[10]){ try { var am = JSON.parse(results[10]); if (am && typeof am === "object") state.athleteMemo = am; } catch(e){} }
     if (results[9]){ try { var ro = JSON.parse(results[9]); if (ro && typeof ro === "object") state.regionOrder = ro; } catch(e){} }
     if (results[8]){ try { var rs = JSON.parse(results[8]); if (typeof rs === "number" && ENTRY_REGIONS[rs]) state.regionSel = rs; } catch(e){} }
