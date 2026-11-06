@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "06.11.2026 · v29";
+var APP_VERSION = "06.11.2026 · v30";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -312,7 +312,8 @@ var state = {
   roundAbsent: {},     // κατάσταση αθλητή στον αγώνα: "absent" | "red" | "aband" (παλιά: true = absent)
   cards: {},           // κίτρινες / αιτιολογία ανά αθλητή: { id: { y: 0, note: "" } }
   loadedDrawId: null,  // ποιος αποθηκευμένος αγώνας είναι ανοιχτός (για τις κίτρινες προηγούμενων αγώνων)
-  panRedCarry: false,  // Πανελλήνιο: κόκκινη σε αγωνιστική = αποκλεισμός και από τις επόμενες
+  panRedCarry: false,
+  publishView: false,  // «Προβολή για δημοσίευση»: καθαρή οθόνη κλήρωσης για στιγμιότυπο  // Πανελλήνιο: κόκκινη σε αγωνιστική = αποκλεισμός και από τις επόμενες
   rounds: null,        // Πανελλήνιο: the 3 αγωνιστικές of one championship draw
   currentRound: 0,
   champTab: "ind",
@@ -2673,6 +2674,7 @@ function startReveal(flat, capacities){
   state.roundAbsent = isChampionship() ? state.rounds[state.currentRound].roundAbsent : {};
   state.cards = isChampionship() ? (state.rounds[state.currentRound].cards = state.rounds[state.currentRound].cards || {}) : {};
   state.loadedDrawId = null;
+  state.publishView = false;
   state.rankings = null;
   state.teams = state.mode === "panhellenic" ? buildTeams(flat) : [];
   if (state.mode === "panhellenic") tagPanFlags(flat, state.teams);
@@ -2966,7 +2968,7 @@ function deleteSavedDraw(id){
 }
 
 function goManage(){ state.editClub = null; state.stage = "manage"; render(); }
-function goSetup(){ state.stage = "setup"; render(); }
+function goSetup(){ state.stage = "setup"; state.publishView = false; render(); }
 // Κουμπί επιστροφής στην κορυφή των σελίδων που δεν είχαν.
 var BACK_TARGETS = {
   result:       { label: "← Σύλλογοι",          go: "goSetup()" },
@@ -2976,6 +2978,7 @@ var BACK_TARGETS = {
   series:       { label: "← Αποθηκευμένες",     go: "goSavedDraws()" }
 };
 function backBar(){
+  if (state.publishView && state.stage === "result") return "";
   var t = BACK_TARGETS[state.stage];
   if (!t) return "";
   return '<div style="margin:-4px 0 12px;"><button class="btn-link" onclick="'+t.go+'">'+t.label+'</button></div>';
@@ -3641,20 +3644,43 @@ function renderChampionship(){
   return html;
 }
 
+function publishHeader(){
+  var reg = state.mode === "regional" ? String(state.saveRegionInput || (state.regionSel !== null && ENTRY_REGIONS[state.regionSel] ? ENTRY_REGIONS[state.regionSel].name : "")).trim() : "";
+  var title = String(state.saveNameInput || "").trim() || ("Κλήρωση " + ({ friendly: "Φιλικού", regional: "Περιφερειακού", panhellenic: "Πανελληνίου" }[state.mode] || ""));
+  var h = '<div style="text-align:center; margin:-4px 0 16px; padding:12px 10px; background:#fff; border:1px solid #E4DFCF; border-top:3px solid '+GOLD+'; border-radius:6px;">';
+  h += '<div style="font-family:Georgia,serif; font-size:18px; color:'+NAVY+'; line-height:1.25;">'+esc(title)+'</div>';
+  var sub = [];
+  if (isChampionship()) sub.push((state.currentRound + 1) + 'η Αγωνιστική');
+  if (reg) sub.push(reg);
+  if (raceInfoLine()) sub.push(raceInfoLine());
+  if (sub.length) h += '<div style="font-size:12.5px; color:#5A6472; margin-top:4px;">'+esc(sub.join(" · "))+'</div>';
+  var sp = sponsorsLabel();
+  if (sp) h += '<div style="font-size:11.5px; color:#9A6F1E; margin-top:3px;">'+esc(sp)+'</div>';
+  h += '<div style="font-size:11px; color:#8A93A0; margin-top:4px;">Κλήρωση · '+state.flatAssignments.length+' αθλητές · '+state.sectorCapacities.length+' τομείς</div>';
+  return h + '</div>';
+}
+function setPublishView(on){ state.publishView = !!on; render(); if (window.scrollTo) window.scrollTo(0, 0); }
 function renderDraw(){
-  var html = '<div style="text-align:center; font-size:13px; color:#5A6472; margin-bottom:16px;">';
-  html += state.stage === "drawing"
-    ? "Κληρώνονται οι αθλητές… (" + state.revealedCount + "/" + state.flatAssignments.length + ")"
-    : "Η κλήρωση ολοκληρώθηκε.";
-  html += '</div>';
+  var pub = state.publishView && state.stage === "result";
+  var html = '';
+  if (pub){
+    html += publishHeader();
+  } else {
+    html += '<div style="text-align:center; font-size:13px; color:#5A6472; margin-bottom:16px;">';
+    html += state.stage === "drawing"
+      ? "Κληρώνονται οι αθλητές… (" + state.revealedCount + "/" + state.flatAssignments.length + ")"
+      : "Η κλήρωση ολοκληρώθηκε.";
+    if (state.stage === "result") html += ' <button class="btn-link" style="margin-left:6px;" onclick="setPublishView(true)">📷 Προβολή για δημοσίευση</button>';
+    html += '</div>';
+  }
   if (isChampionship() && state.stage === "result"){
     html += '<div class="round-tabs">';
     state.rounds.forEach(function(r, i){
       html += '<button class="round-tab'+(i===state.currentRound?' active':'')+'" onclick="goRound('+i+')">'+(i+1)+'η Αγωνιστική</button>';
     });
-    html += '<button class="round-tab champ" onclick="openChampionship()">🏆 Πρωτάθλημα</button>';
+    if (!pub) html += '<button class="round-tab champ" onclick="openChampionship()">🏆 Πρωτάθλημα</button>';
     html += '</div>';
-    html += '<div style="text-align:center; font-size:11.5px; color:#8A93A0; margin:-8px 0 14px;">Κάθε αθλητής αλλάζει τομέα σε κάθε αγωνιστική · «Απ» = απών εκείνη τη μέρα (κενή ψαρεύτρα, βαθμός τομέα +1)</div>';
+    if (!pub) html += '<div style="text-align:center; font-size:11.5px; color:#8A93A0; margin:-8px 0 14px;">Κάθε αθλητής αλλάζει τομέα σε κάθε αγωνιστική · «Απ» = απών εκείνη τη μέρα (κενή ψαρεύτρα, βαθμός τομέα +1)</div>';
   }
 
   var byPosition = new Array(state.flatAssignments.length).fill(null);
@@ -3698,7 +3724,7 @@ function renderDraw(){
           });
           html += '</span><span title="Ζευγάρι" style="flex-shrink:0; font-size:10px; color:#B8862F; font-weight:bold;">👥</span>';
         } else {
-        html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'+(statusModeOn() && statusOf(state.roundAbsent, slot.athleteId) ? 'text-decoration:line-through; opacity:0.55;' : '')+'">'+esc(slot.athleteName)+'</span><span style="color:#8A93A0; font-size:11px; white-space:nowrap;">· '+esc(slot.clubName)+'</span>';
+        html += '<span style="'+(pub ? 'white-space:normal; line-height:1.25; font-weight:bold;' : 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')+(statusModeOn() && statusOf(state.roundAbsent, slot.athleteId) ? 'text-decoration:line-through; opacity:0.55;' : '')+'">'+esc(slot.athleteName)+'</span><span style="color:#8A93A0; font-size:11px; white-space:nowrap;">· '+esc(slot.clubName)+'</span>';
         }
         if (state.mode === "panhellenic" && slot.participation && slot.participation !== "both"){
           html += '<span class="part-tag '+slot.participation+'" style="cursor:default;" title="'+PARTICIPATION[slot.participation].full+'">'+PARTICIPATION[slot.participation].label+'</span>';
@@ -3707,7 +3733,7 @@ function renderDraw(){
         html += '<span style="color:#C7C0AC;">—</span>';
       }
       html += '</div>';
-      if (filled && state.stage === "result"){
+      if (filled && state.stage === "result" && !pub){
         html += '<div style="display:flex; align-items:center; gap:3px; flex-shrink:0;">';
         if (state.mode === "panhellenic" && state.rankings){
           if (slot.inIndividual !== false && state.rankings[slot.athleteId]) html += '<span title="Ατομική βαθμολογία τομέα" style="background:'+GOLD+';color:'+NAVY+';border-radius:10px;padding:1px 6px;font-size:10.5px;font-weight:bold;">Α'+state.rankings[slot.athleteId]+'</span>';
@@ -3739,7 +3765,7 @@ function renderDraw(){
         }
       }
       html += '</div>';
-      if (filled && state.stage === "result" && statusModeOn() && !slot.members){
+      if (filled && state.stage === "result" && !pub && statusModeOn() && !slot.members){
         var cdN = cardOf(slot.athleteId), pyN = priorYellows(slot.athleteId);
         if (stS || cdN.y || pyN){
           html += '<div style="margin:3px 0 0 40px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">';
@@ -3758,7 +3784,11 @@ function renderDraw(){
   });
   html += '</div>';
 
-  if (state.stage === "result"){
+  if (pub){
+    html += '<div style="text-align:center; font-size:11px; color:#8A93A0; margin-top:10px;">Ε.Ο.Υ.Δ.Α. · Κληρώσεις & Διαχείριση Αγώνων Φελλού</div>';
+    html += '<div style="text-align:center; margin-top:16px;"><button class="btn-secondary" onclick="setPublishView(false)">✕ Κανονική προβολή</button></div>';
+  }
+  if (state.stage === "result" && !pub){
     html += '<div style="display:flex; gap:8px; margin-top:22px; justify-content:center; max-width:420px; margin-left:auto; margin-right:auto;">';
     html += '<input id="saveNameInput" type="text" class="input" style="flex:1;" placeholder="Όνομα κλήρωσης (π.χ. Αγώνας 21/9)" value="'+esc(state.saveNameInput || "")+'" oninput="state.saveNameInput=this.value;" />';
     html += '<button class="btn-primary-sm" onclick="saveCurrentDraw()">💾 Αποθήκευση</button>';
