@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "06.11.2026 · v30";
+var APP_VERSION = "08.11.2026 · v32";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -313,7 +313,8 @@ var state = {
   cards: {},           // κίτρινες / αιτιολογία ανά αθλητή: { id: { y: 0, note: "" } }
   loadedDrawId: null,  // ποιος αποθηκευμένος αγώνας είναι ανοιχτός (για τις κίτρινες προηγούμενων αγώνων)
   panRedCarry: false,
-  publishView: false,  // «Προβολή για δημοσίευση»: καθαρή οθόνη κλήρωσης για στιγμιότυπο  // Πανελλήνιο: κόκκινη σε αγωνιστική = αποκλεισμός και από τις επόμενες
+  publishView: false,
+  drawAbsentees: null, // απόντες πριν την κλήρωση, όπως ήταν τη στιγμή της κλήρωσης (μένουν με τον αγώνα)  // «Προβολή για δημοσίευση»: καθαρή οθόνη κλήρωσης για στιγμιότυπο  // Πανελλήνιο: κόκκινη σε αγωνιστική = αποκλεισμός και από τις επόμενες
   rounds: null,        // Πανελλήνιο: the 3 αγωνιστικές of one championship draw
   currentRound: 0,
   champTab: "ind",
@@ -876,7 +877,8 @@ function individualRows(flat, caps, weights, rankings, excludeTeamOnly, absent){
   for (var i = 0; i < rows.length; ){
     var j = i;
     while (j + 1 < rows.length && rows[j+1].place === rows[i].place) j++;
-    if (j > i && rows[i].weight === 0){
+    // Μόνο όσοι ψάρεψαν (άρθρο 36)· απόντες / κόκκινες / εγκαταλείψεις δεν μοιράζονται μέσο όρο.
+    if (j > i && rows[i].weight === 0 && !rows[i].status){
       var sum = 0;
       for (var k = i; k <= j; k++) sum += k + 1;
       var avg = Math.ceil(sum / (j - i + 1));
@@ -1627,7 +1629,7 @@ function importRaceCsvText(text, fileName){
   function col(name){ return H.indexOf(normalizeClubName(name)); }
   var cPos = col("ΘΕΣΗ"), cName = col("ΟΝΟΜΑ ΑΘΛΗΤΗ"), cClub = col("ΣΥΛΛΟΓΟΣ"), cSp = col("ΧΟΡΗΓΟΣ"), cW = col("ΒΑΡΟΣ");
   var cSt = col("ΚΑΤΑΣΤΑΣΗ"), cY = col("ΚΙΤΡΙΝΕΣ"), cNote = col("ΑΙΤΙΟΛΟΓΙΑ");
-  var statusIn = {}, cardsIn = {};
+  var statusIn = {}, cardsIn = {}, absentIn = [];
   function statusFromText(t){
     var k = normalizeClubName(String(t || "").replace(/\./g, ""));
     if (!k) return null;
@@ -1642,6 +1644,10 @@ function importRaceCsvText(text, fileName){
     var posRaw = String(r[cPos] || "").trim();
     var name = String(r[cName] || "").trim();
     if (!posRaw || !name) return;
+    if (normalizeClubName(posRaw) === "απων"){
+      absentIn.push({ name: name, clubName: String(r[cClub] || "").trim(), sponsor: cSp >= 0 ? String(r[cSp] || "").trim() : "" });
+      return;
+    }
     var m = posRaw.match(/^([^\d\s]+)\s*(\d+)$/);
     if (!m) throw new Error("γραμμή " + (idx+2) + ": άκυρη θέση «" + posRaw + "»");
     var sector = sectorIndexFromLetters(m[1]);
@@ -1688,7 +1694,7 @@ function importRaceCsvText(text, fileName){
     numSectors: caps.length, flatAssignments: flat.sort(function(a,b){ return a.position - b.position; }),
     sectorCapacities: caps, weights: weights,
     rankings: hasWeights ? regionalRankRound(flat, caps, weights, statusIn) : null, teamRankings: null,
-    roundAbsent: statusIn, cards: cardsIn, rounds: null, currentRound: 0, absentAthletes: []
+    roundAbsent: statusIn, cards: cardsIn, rounds: null, currentRound: 0, absentAthletes: absentIn
   };
   state.savedDraws.push(draw);
   storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
@@ -2675,6 +2681,7 @@ function startReveal(flat, capacities){
   state.cards = isChampionship() ? (state.rounds[state.currentRound].cards = state.rounds[state.currentRound].cards || {}) : {};
   state.loadedDrawId = null;
   state.publishView = false;
+  state.drawAbsentees = snapshotAbsentees();
   state.rankings = null;
   state.teams = state.mode === "panhellenic" ? buildTeams(flat) : [];
   if (state.mode === "panhellenic") tagPanFlags(flat, state.teams);
@@ -2785,6 +2792,21 @@ function openFinalRanking(){
   state.stage = "finalRanking";
   render();
 }
+// Απόντες πριν την κλήρωση: κρατιούνται με τον αγώνα, ώστε να μη χάνονται αν
+// αλλάξει μετά η λίστα συλλόγων ή αν ο αγώνας ήρθε από άλλο κινητό (Excel).
+function snapshotAbsentees(){
+  if (state.mode === "panhellenic") return [];
+  return [].concat.apply([], modeClubs().map(function(c){
+    return c.athletes.filter(function(a){ return a.absent; }).map(function(a){ return { name: a.name, clubName: c.name, sponsor: a.sponsor || "" }; });
+  }));
+}
+function absenteeRows(){
+  var list = Array.isArray(state.drawAbsentees) && state.drawAbsentees.length ? state.drawAbsentees : snapshotAbsentees();
+  return list.map(function(a, i){
+    var c = state.clubs.find(function(x){ return normalizeClubName(x.name) === normalizeClubName(a.clubName); }) || {};
+    return { athleteId: "absent-" + i + "-" + seriesKey(a.name), athleteName: a.name, sponsor: a.sponsor || "", clubName: a.clubName, color: c.color || "#8A93A0", logo: c.logo || null };
+  });
+}
 function computeFinalStandings(){
   var rankings = state.rankings, weights = state.weights;
   var excludeTeamOnly = state.mode === "panhellenic";
@@ -2799,16 +2821,19 @@ function computeFinalStandings(){
   var absentPlace = withPlace.length + 1;
   // Πανελλήνιο: athletes marked absent before the draw are simply not
   // taking part; absences on the day are marked per round instead.
-  if (state.mode !== "panhellenic") modeClubs().forEach(function(c){
-    c.athletes.filter(function(a){ return a.absent; }).forEach(function(a){
-      withPlace.push({
-        athleteId: a.id, athleteName: a.name, sponsor: a.sponsor || "",
-        clubName: c.name, color: c.color, logo: c.logo,
-        sector: null, position: null, localPosition: null,
-        score: absentScore, weight: 0, place: absentPlace
-      });
-    });
+  if (state.mode !== "panhellenic") absenteeRows().forEach(function(a){
+    withPlace.push(Object.assign(a, { sector: null, position: null, localPosition: null, score: absentScore, weight: 0, place: absentPlace, status: "absent" }));
   });
+  // Όσοι λείπουν (απόντες πριν/μετά την κλήρωση, κόκκινες, εγκαταλείψεις) με τον ίδιο
+  // βαθμό ποινής: ισόβαθμοι στην πρώτη θέση της ομάδας τους, χωρίς μέσο όρο.
+  for (var i = 0; i < withPlace.length; ){
+    var j = i;
+    if (withPlace[i].status){
+      while (j + 1 < withPlace.length && withPlace[j+1].status && withPlace[j+1].score === withPlace[i].score) j++;
+      for (var m = i; m <= j; m++) withPlace[m].place = i + 1;
+    }
+    i = j + 1;
+  }
 
   return withPlace;
 }
@@ -2881,6 +2906,16 @@ function exportToExcel(){
     if (withStatus){ var cE = cardOf(a.athleteId); row.push(stE ? statusLabel(stE) : "", cE.y || "", cE.note || ""); }
     return row;
   });
+  // Απόντες πριν την κλήρωση: χωρίς θέση, ΘΕΣΗ «ΑΠΩΝ» — η εισαγωγή τους ξαναβρίσκει.
+  if (!isPan){
+    var maxCapE = state.sectorCapacities.length ? Math.max.apply(null, state.sectorCapacities) : 0;
+    absenteeRows().forEach(function(a){
+      var row = [csvRows.length + 1, "ΑΠΩΝ", a.athleteName, a.clubName, a.sponsor || "", "ΑΠΩΝ", state.rankings ? maxCapE + 1 : ""];
+      while (row.length < header.length) row.push("");
+      if (withStatus) row[header.indexOf("ΚΑΤΑΣΤΑΣΗ")] = "ΑΠΩΝ";
+      csvRows.push(row);
+    });
+  }
   var today = new Date().toISOString().slice(0,10);
   var nm = (state.saveNameInput || "").trim().replace(/[^\w\u0370-\u03FF\u1F00-\u1FFF]+/g, "_").replace(/^_+|_+$/g, "");
   downloadCsv("Fyllo_Agona_" + (nm ? nm + "_" : "") + (isChampionship() ? (state.currentRound+1) + "i_Agonistiki_" : "") + today + ".csv", header, csvRows);
@@ -2925,9 +2960,7 @@ function saveCurrentDraw(){
     sectorCapacities: state.sectorCapacities, weights: state.weights, rankings: state.rankings, teamRankings: state.teamRankings,
     memberWeights: state.memberWeights || {}, pairWeigh: state.drawPairWeigh || "pair",
     roundAbsent: state.roundAbsent || {}, cards: state.cards || {}, rounds: isChampionship() ? state.rounds : null, currentRound: state.currentRound,
-    absentAthletes: state.mode === "panhellenic" ? [] : [].concat.apply([], modeClubs().map(function(c){
-      return c.athletes.filter(function(a){ return a.absent; }).map(function(a){ return { name: a.name, clubName: c.name }; });
-    }))
+    absentAthletes: Array.isArray(state.drawAbsentees) && state.drawAbsentees.length ? state.drawAbsentees : snapshotAbsentees()
   };
   state.savedDraws.push(draw);
   state.loadedDrawId = draw.id;
@@ -2954,6 +2987,7 @@ function loadSavedDraw(id){
   state.roundAbsent = draw.roundAbsent || {};
   state.cards = draw.cards || {};
   state.loadedDrawId = draw.id;
+  state.drawAbsentees = Array.isArray(draw.absentAthletes) ? draw.absentAthletes : null;
   state.rounds = draw.rounds && draw.rounds.length ? draw.rounds : null;
   if (state.rounds) applyRound(Math.min(draw.currentRound || 0, state.rounds.length - 1));
   state.revealedCount = state.flatAssignments.length;
