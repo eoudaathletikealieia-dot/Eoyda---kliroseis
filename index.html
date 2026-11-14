@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "08.11.2026 · v32";
+var APP_VERSION = "14.11.2026 · v33";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -1617,13 +1617,110 @@ function importRaceCsv(file){
   if (!file) return;
   var reader = new FileReader();
   reader.onload = function(){
-    try { importRaceCsvText(String(reader.result), file.name); }
-    catch(e){ state.importMsg = "✕ Το αρχείο δεν διαβάστηκε: " + e.message; render(); }
+    importRaceBuffer(reader.result, file.name).catch(function(e){
+      state.importMsg = "✕ Το αρχείο δεν διαβάστηκε: " + (e && e.message ? e.message : e); render();
+    });
   };
-  reader.readAsText(file, "utf-8");
+  reader.readAsArrayBuffer(file);
+}
+/* Δέχεται .xlsx (αποθηκευμένο από Excel), .csv σε UTF-8 ή σε ελληνική κωδικοποίηση Windows (1253). */
+function importRaceBuffer(buf, fileName){
+  return Promise.resolve().then(function(){
+    var b = new Uint8Array(buf);
+    if (b[0] === 0x50 && b[1] === 0x4B) return xlsxToRows(b).then(function(rows){ importRaceRows(rows, fileName); });
+    if (b[0] === 0xD0 && b[1] === 0xCF) throw new Error("παλιά μορφή .xls — στο Excel κάνε «Αποθήκευση ως» Βιβλίο εργασίας Excel (.xlsx) ή CSV");
+    importRaceCsvText(decodeCsvBytes(b), fileName);
+  });
+}
+function decodeCsvBytes(b){
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(b); }
+  catch(e){
+    try { return new TextDecoder("windows-1253").decode(b); }
+    catch(e2){ return new TextDecoder("utf-8").decode(b); }
+  }
+}
+/* Ελάχιστος αναγνώστης .xlsx: διαβάζει το πρώτο φύλλο σε πίνακα γραμμών/κελιών. */
+function xlsxToRows(bytes){
+  var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  var eocd = -1;
+  for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--){
+    if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("το αρχείο .xlsx είναι κατεστραμμένο");
+  var count = dv.getUint16(eocd + 10, true), off = dv.getUint32(eocd + 16, true), entries = {};
+  for (var n = 0; n < count; n++){
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    var method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true);
+    var nlen = dv.getUint16(off + 28, true), xlen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true);
+    var lho = dv.getUint32(off + 42, true);
+    var name = new TextDecoder("utf-8").decode(bytes.subarray(off + 46, off + 46 + nlen));
+    entries[name.replace(/^\//, "")] = { method: method, csize: csize, lho: lho };
+    off += 46 + nlen + xlen + clen;
+  }
+  function read(name){
+    var e = entries[name];
+    if (!e) return Promise.resolve(null);
+    var start = e.lho + 30 + dv.getUint16(e.lho + 26, true) + dv.getUint16(e.lho + 28, true);
+    var data = bytes.subarray(start, start + e.csize);
+    if (e.method === 0) return Promise.resolve(new TextDecoder("utf-8").decode(data));
+    if (e.method !== 8) return Promise.reject(new Error("άγνωστη συμπίεση .xlsx"));
+    if (typeof DecompressionStream === "undefined") return Promise.reject(new Error("ο browser δεν διαβάζει .xlsx — αποθήκευσε το αρχείο ως CSV"));
+    var stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Response(stream).arrayBuffer().then(function(ab){ return new TextDecoder("utf-8").decode(new Uint8Array(ab)); });
+  }
+  function unxml(t){
+    return t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&#x([0-9a-fA-F]+);/g, function(_, h){ return String.fromCodePoint(parseInt(h, 16)); })
+      .replace(/&#(\d+);/g, function(_, d){ return String.fromCodePoint(parseInt(d, 10)); })
+      .replace(/&amp;/g, "&");
+  }
+  function texts(x){
+    var out = "", re = /<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>/g, m;
+    var noPh = x.replace(/<(?:\w+:)?rPh[\s\S]*?<\/(?:\w+:)?rPh>/g, "");
+    while ((m = re.exec(noPh))) out += unxml(m[1]);
+    return out;
+  }
+  return Promise.all([read("xl/workbook.xml"), read("xl/_rels/workbook.xml.rels"), read("xl/sharedStrings.xml")]).then(function(r){
+    var wb = r[0] || "", rels = r[1] || "", sst = r[2] || "";
+    var sheetPath = null;
+    var sm = wb.match(/<(?:\w+:)?sheet\b[^>]*?r:id="([^"]+)"/);
+    if (sm){
+      var rm = rels.match(new RegExp('<Relationship\\b[^>]*Id="' + sm[1] + '"[^>]*>')) ;
+      var tm = rm && rm[0].match(/Target="([^"]+)"/);
+      if (tm) sheetPath = tm[1].charAt(0) === "/" ? tm[1].slice(1) : "xl/" + tm[1];
+    }
+    if (!sheetPath || !entries[sheetPath]) sheetPath = Object.keys(entries).filter(function(k){ return /^xl\/worksheets\/[^/]+\.xml$/.test(k); }).sort()[0];
+    if (!sheetPath) throw new Error("δεν βρέθηκε φύλλο στο .xlsx");
+    var shared = [], sre = /<(?:\w+:)?si>([\s\S]*?)<\/(?:\w+:)?si>/g, m;
+    while ((m = sre.exec(sst))) shared.push(texts(m[1]));
+    return read(sheetPath).then(function(xml){
+      var rows = [], rre = /<(?:\w+:)?row\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:\w+:)?row>)/g, rm2;
+      while ((rm2 = rre.exec(xml || ""))){
+        var row = [], cre = /<(?:\w+:)?c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?c>)/g, cm, next = 0;
+        while ((cm = cre.exec(rm2[1] || ""))){
+          var attrs = cm[1], inner = cm[2] || "";
+          var ref = attrs.match(/\br="([A-Z]+)\d+"/), t = (attrs.match(/\bt="([^"]+)"/) || [])[1];
+          var col = next;
+          if (ref){ col = 0; for (var k = 0; k < ref[1].length; k++) col = col * 26 + (ref[1].charCodeAt(k) - 64); col -= 1; }
+          var vm = inner.match(/<(?:\w+:)?v>([\s\S]*?)<\/(?:\w+:)?v>/), v = vm ? unxml(vm[1]) : "";
+          var val;
+          if (t === "s") val = shared[parseInt(v, 10)] || "";
+          else if (t === "inlineStr") val = texts(inner);
+          else if (t === "str" || t === "e" || t === "b") val = v;
+          else val = (v !== "" && isFinite(Number(v))) ? String(parseFloat(Number(v).toPrecision(12))) : v;
+          while (row.length < col) row.push("");
+          row[col] = val; next = col + 1;
+        }
+        if (row.some(function(c){ return String(c).trim() !== ""; })) rows.push(row);
+      }
+      return rows;
+    });
+  });
 }
 function importRaceCsvText(text, fileName){
-  var rows = parseCsvText(text);
+  importRaceRows(parseCsvText(text), fileName);
+}
+function importRaceRows(rows, fileName){
   if (rows.length < 2) throw new Error("κενό αρχείο");
   var H = rows[0].map(function(h){ return normalizeClubName(h); });
   function col(name){ return H.indexOf(normalizeClubName(name)); }
@@ -3400,7 +3497,7 @@ function renderSavedDraws(){
   var list = savedDrawsForMode(state.mode);
   html += '<div style="font-size:12px; color:#8A93A0; margin:-8px 0 12px;">'+(state.mode ? MODES[state.mode].title : '')+'</div>';
   if (state.mode !== "panhellenic"){
-    html += '<input type="file" id="csvImportInput" accept=".csv,text/csv,text/plain" style="display:none;" onchange="importRaceCsv(this.files[0]); this.value=\'\';" />';
+    html += '<input type="file" id="csvImportInput" accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style="display:none;" onchange="importRaceCsv(this.files[0]); this.value=\'\';" />';
     html += '<button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="triggerImportCsv()">📥 Εισαγωγή αγώνα από Excel (Φύλλο Αγώνα)</button>';
     if (state.mode === "regional") html += '<button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="goQuota()">🎯 Κατανομή θέσεων τελικού</button>';
     if (state.importMsg) html += '<div style="font-size:12.5px; margin:-4px 0 12px; color:'+(state.importMsg.charAt(0)==="✓"?"#2E6B3E":"#A33")+';">'+esc(state.importMsg)+'</div>';
