@@ -74,7 +74,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "14.11.2026 · v33";
+var APP_VERSION = "14.11.2026 · v34";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -202,7 +202,64 @@ const DEFAULT_LOGOS = {
 
 function uid(){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function shuffle(arr){ var a=arr.slice(); for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
-function esc(s){ var d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+var ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\u00A0": "&nbsp;" };
+function esc(s){ return (s == null ? "" : String(s)).replace(/[&<>"\u00A0]/g, function(c){ return ESC_MAP[c]; }); }
+/* Τα λογότυπα είναι ενσωματωμένα ως data: εικόνες (5–30 KB η καθεμία). Αν μπαίνουν αυτούσια σε κάθε
+   σχεδίαση της σελίδας, ο browser ξανα-αποκωδικοποιεί δεκάδες εικόνες σε κάθε πάτημα — αυτό τρώει μπαταρία.
+   Εδώ κάθε λογότυπο γίνεται μία φορά blob: URL και από εκεί και πέρα σερβίρεται από τη μνήμη. */
+var _blobUrls = {};
+function lightImages(html){
+  if (typeof URL === "undefined" || !URL.createObjectURL || typeof Blob === "undefined" || typeof atob === "undefined") return html;
+  return html.replace(/src="(data:([^;,"]+);base64,([^"]+))"/g, function(m, full, mime, b64){
+    var u = _blobUrls[full];
+    if (!u){
+      try {
+        var bin = atob(b64), arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        u = _blobUrls[full] = URL.createObjectURL(new Blob([arr], { type: mime }));
+      } catch(e){ return m; }
+    }
+    return 'src="' + u + '"';
+  });
+}
+/* Αποθήκευση αγώνων: κάθε λογότυπο γράφεται μία φορά (pool) αντί για μία φορά ανά αθλητή.
+   Ένας αγώνας έπιανε ~0,5–1 MB και ο browser χωράει ~5 MB — μετά από λίγους αγώνες η αποθήκευση θα αποτύγχανε. */
+function packDraws(draws){
+  var pool = [], idx = {};
+  function walk(v){
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object"){
+      var o = {};
+      for (var k in v){
+        var x = v[k];
+        if (typeof x === "string" && x.length > 200 && x.indexOf("data:") === 0){
+          if (!(x in idx)){ idx[x] = pool.length; pool.push(x); }
+          o[k] = { __img: idx[x] };
+        } else o[k] = walk(x);
+      }
+      return o;
+    }
+    return v;
+  }
+  return JSON.stringify({ packed: 2, pool: pool, draws: walk(draws) });
+}
+function unpackDraws(parsed){
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || parsed.packed !== 2 || !Array.isArray(parsed.draws)) return [];
+  var pool = parsed.pool || [];
+  function walk(v){
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object"){
+      if (typeof v.__img === "number" && Object.keys(v).length === 1) return pool[v.__img] || null;
+      var o = {};
+      for (var k in v) o[k] = walk(v[k]);
+      return o;
+    }
+    return v;
+  }
+  return walk(parsed.draws);
+}
+function persistSavedDraws(){ storageSet(SAVED_DRAWS_KEY, packDraws(state.savedDraws)); }
 function jsStr(s){ return "'" + String(s==null?"":s).replace(/\\/g,"\\\\").replace(/'/g,"\\'") + "'"; }
 
 function computeCapacities(total, n){
@@ -1108,7 +1165,7 @@ function editDrawRegion(id){
   var v = window.prompt("Περιφέρεια του αγώνα «" + d.name + "»:", d.region || "");
   if (v === null) return;
   d.region = v.trim();
-  storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
+  persistSavedDraws();
   render();
 }
 function computeQuota(){
@@ -1794,7 +1851,7 @@ function importRaceRows(rows, fileName){
     roundAbsent: statusIn, cards: cardsIn, rounds: null, currentRound: 0, absentAthletes: absentIn
   };
   state.savedDraws.push(draw);
-  storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
+  persistSavedDraws();
   state.importMsg = "✓ Εισήχθη «" + name + "» · " + flat.length + " αθλητές σε " + caps.length + " τομείς" + (hasWeights ? " · με βάρη" : "");
   render();
 }
@@ -2211,7 +2268,7 @@ function applyClubEditToSavedDraws(c, oldName, oldLogo, changes){
     });
     if (d.raceInfo && normalizeClubName(d.raceInfo.organizer || "") === oldKey) d.raceInfo.organizer = c.name;
   });
-  storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
+  persistSavedDraws();
 }
 
 function renderClubEditForm(club){
@@ -3061,7 +3118,7 @@ function saveCurrentDraw(){
   };
   state.savedDraws.push(draw);
   state.loadedDrawId = draw.id;
-  storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
+  persistSavedDraws();
   render();
 }
 function loadSavedDraw(id){
@@ -3094,7 +3151,7 @@ function loadSavedDraw(id){
 function deleteSavedDraw(id){
   confirmOrRun("saved-draw-"+id, function(){
     state.savedDraws = state.savedDraws.filter(function(d){ return d.id !== id; });
-    storageSet(SAVED_DRAWS_KEY, JSON.stringify(state.savedDraws));
+    persistSavedDraws();
   });
 }
 
@@ -3149,7 +3206,7 @@ function render(){
   else if (state.stage === "finalRanking") body = renderFinalRanking();
   else body = renderDraw();
 
-  root.innerHTML = header + '<div style="max-width:720px; margin:0 auto; padding:18px 16px 60px;">' + backBar() + body + '</div>';
+  root.innerHTML = lightImages(header + '<div style="max-width:720px; margin:0 auto; padding:18px 16px 60px;">' + backBar() + body + '</div>');
 
   if (state.editingSponsorFor){
     var editEl = document.getElementById("sponsorEdit-"+state.editingSponsorFor);
@@ -3982,7 +4039,7 @@ function renderDraw(){
   }).then(function(results){
     var libVal = results[0], rosterVal = results[1], savedVal = results[2];
     if (libVal){ try { state.library = JSON.parse(libVal); } catch(e){} }
-    if (savedVal){ try { state.savedDraws = JSON.parse(savedVal); } catch(e){} }
+    if (savedVal){ try { state.savedDraws = unpackDraws(JSON.parse(savedVal)); } catch(e){} }
     var modeVal = null;
     if (results[3]){ try { modeVal = JSON.parse(results[3]); } catch(e){} }
     if (MODES[modeVal]){ state.mode = modeVal; state.stage = "setup"; }
