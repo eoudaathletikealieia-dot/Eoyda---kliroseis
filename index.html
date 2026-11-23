@@ -81,7 +81,7 @@ var SECTOR_LETTERS = ["Α","Β","Γ","Δ","Ε","ΣΤ","Ζ","Η","Θ","Ι","ΙΑ"
 function sectorLabel(i){ return SECTOR_LETTERS[i] || String(i+1); }
 var LIBRARY_KEY = "state/library";
 var ROSTER_KEY = "state/roster";
-var APP_VERSION = "24.11.2026 · v36";
+var APP_VERSION = "24.11.2026 · v37";
 var QUOTA_NOTE = "Η κατανομή είναι προσωρινή. Η τελική ποσόστωση κάθε Περιφέρειας θα οριστικοποιηθεί μετά την ολοκλήρωση των αγωνιστικών υποχρεώσεων σε όλες τις Περιφέρειες, όταν θα είναι γνωστός ο τελικός αριθμός έγκυρων συμμετοχών ανά Περιφέρεια.";
 var Q_ORANGE = "#C8641E", Q_GREEN = "#2E6B3E";
 // Οριστική κατανομή: όταν έχουν κλειδώσει ΟΛΕΣ οι περιφέρειες της λίστας.
@@ -3570,7 +3570,6 @@ function renderSavedDraws(){
   if (state.mode !== "panhellenic"){
     html += '<input type="file" id="csvImportInput" accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style="display:none;" onchange="importRaceCsv(this.files[0]); this.value=\'\';" />';
     html += '<button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="triggerImportCsv()">📥 Εισαγωγή αγώνα από Excel (Φύλλο Αγώνα)</button>';
-    if (state.mode === "regional") html += '<button class="btn-secondary" style="width:100%; margin-bottom:10px;" onclick="goQuota()">🎯 Κατανομή θέσεων τελικού</button>';
     if (state.importMsg) html += '<div style="font-size:12.5px; margin:-4px 0 12px; color:'+(state.importMsg.charAt(0)==="✓"?"#2E6B3E":"#A33")+';">'+esc(state.importMsg)+'</div>';
   }
   if (list.length === 0) html += '<div style="color:#8A93A0; font-size:13px;">Δεν υπάρχουν αποθηκευμένες κληρώσεις σε αυτόν τον τύπο αγώνα.</div>';
